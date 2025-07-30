@@ -470,7 +470,7 @@ vector_store = VectorStore()
 # --- MAIN UI ---
 with st.sidebar:
     # Logo at the top
-    st.image("https://raw.githubusercontent.com/achilela/vila_fofoka_analysis/4d7f7962ad5b1b0b89e3065cd9d8d0a398b09b8b/ValonyLabs_Logo.png", width=200)
+    st.image("attached_assets/ValonyLabs_Logo_1753908658100.png", width=120)
     
     st.header("⚙️ Analysis Configuration")
     
