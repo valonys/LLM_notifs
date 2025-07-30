@@ -1,7 +1,15 @@
 # DigiTwin RAG System
 
 ## Overview
-DigiTwin is a production-ready Retrieval-Augmented Generation (RAG) system designed for industrial inspection and document analysis. The system provides AI-powered insights through a modern Streamlit interface, supporting multiple AI models, document types, and real-time response streaming. It's specifically tailored for industrial environments like FPSO operations, offshore safety protocols, and regulatory compliance monitoring.
+DigiTwin is a production-ready Retrieval-Augmented Generation (RAG) system designed for industrial inspection and document analysis. Built using the user's proven app_rag.py architecture, the system provides AI-powered insights through the original Streamlit interface with preserved fonts, styling, and model configurations. Enhanced with PostgreSQL database persistence to eliminate redundant Excel file uploads and enable cached data retrieval. Specifically tailored for industrial environments like FPSO operations, offshore safety protocols, and regulatory compliance monitoring.
+
+## Recent Changes (January 30, 2025)
+- ✅ **Architecture Restored**: Reverted to user's original working app_rag.py design and structure
+- ✅ **Database Integration**: Added PostgreSQL persistence for uploaded files and processed documents
+- ✅ **File Caching System**: Implemented database-backed file caching to avoid re-uploading Excel files
+- ✅ **Pivot Table Persistence**: Enhanced vector_store.py with database caching for pivot table operations
+- ✅ **Model Connections**: Restored original API configurations (XAI, DeepSeek, Cerebras) with proper streaming
+- ✅ **UI Preservation**: Maintained exact original styling, fonts ("Tw Cen MT"), and interface layout
 
 ## User Preferences
 ```

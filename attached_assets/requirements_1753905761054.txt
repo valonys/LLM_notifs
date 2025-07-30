@@ -1,0 +1,38 @@
+# Core Packages
+streamlit==1.38.0
+python-dotenv==1.0.0
+requests==2.32.4
+
+# Document Processing
+PyPDF2==3.0.0
+pypdf==3.17.4
+python-docx==0.8.11
+openpyxl==3.1.2
+
+# Data Handling
+pandas==2.2.0
+
+# AI/ML Core
+torch==2.3.0
+transformers==4.38.2
+accelerate==0.27.2
+sentencepiece==0.2.0
+sentence-transformers==2.2.2
+faiss-cpu==1.7.4
+
+# LLM & Cloud
+openai==1.0.0
+cerebras_cloud_sdk
+tiktoken==0.5.1
+huggingface-hub==0.20.3
+
+# LangChain Ecosystem
+langchain==0.1.0
+langchain-community==0.0.20
+langchain-text-splitters==0.0.1
+
+# Additional Dependencies
+cachetools==5.3.2
+backoff==2.2.1
+sentry-sdk==1.40.4
+prometheus-client==0.19.0
