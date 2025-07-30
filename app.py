@@ -325,7 +325,7 @@ def generate_response(prompt):
                 
                 data = {
                     "messages": messages,
-                    "model": "grok-beta",
+                    "model": "grok-2-latest",
                     "stream": False,
                     "temperature": 0.7
                 }
@@ -382,9 +382,15 @@ def generate_response(prompt):
 
         elif st.session_state.current_model == "EdJa-Valonys":
             try:
-                client = Cerebras(api_key=os.getenv("CEREBRAS_API_KEY"))
-                response = client.chat.completions.create(model="llama3.1-8b", messages=messages)
-                content = response.choices[0].message.content if hasattr(response.choices[0], "message") else str(response.choices[0])
+                # Check if Cerebras is available
+                try:
+                    from cerebras.cloud.sdk import Cerebras
+                    client = Cerebras(api_key=os.getenv("CEREBRAS_API_KEY"))
+                    response = client.chat.completions.create(model="llama3.1-8b", messages=messages)
+                    content = response.choices[0].message.content if hasattr(response.choices[0], "message") else str(response.choices[0])
+                except ImportError:
+                    raise Exception("Cerebras SDK not available")
+                
                 for word in content.split():
                     full_response += word + " "
                     yield f"<span style='font-family:Tw Cen MT'>{word} </span>"
