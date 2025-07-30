@@ -4,64 +4,20 @@ import time
 import json
 import logging
 from dotenv import load_dotenv
-
-# Optional imports with graceful fallbacks
-try:
-    from PyPDF2 import PdfReader
-    PDF_AVAILABLE = True
-except ImportError:
-    PDF_AVAILABLE = False
-
-try:
-    from langchain_community.vectorstores import FAISS
-    from langchain_community.embeddings import HuggingFaceEmbeddings
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-    from langchain.schema import Document as LCDocument
-    LANGCHAIN_AVAILABLE = True
-except ImportError:
-    LANGCHAIN_AVAILABLE = False
-
-try:
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    TRANSFORMERS_AVAILABLE = False
-
-try:
-    import openai
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-
-try:
-    from cerebras.cloud.sdk import Cerebras
-    CEREBRAS_AVAILABLE = True
-except ImportError:
-    CEREBRAS_AVAILABLE = False
-
-try:
-    from vector_store import VectorStore, SimpleTextStore
-    VECTOR_STORE_AVAILABLE = True
-except ImportError:
-    VECTOR_STORE_AVAILABLE = False
-
-try:
-    from cachetools import TTLCache
-    CACHE_AVAILABLE = True
-except ImportError:
-    CACHE_AVAILABLE = False
-
-try:
-    import sentry_sdk
-    SENTRY_AVAILABLE = True
-except ImportError:
-    SENTRY_AVAILABLE = False
-
-try:
-    from prometheus_client import start_http_server, Counter
-    PROMETHEUS_AVAILABLE = True
-except ImportError:
-    PROMETHEUS_AVAILABLE = False
+from PyPDF2 import PdfReader
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.schema import Document as LCDocument
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import openai
+from cerebras.cloud.sdk import Cerebras
+from vector_store import VectorStore, SimpleTextStore
+# from together import Together  # Not used anymore
+from cachetools import TTLCache
+# backoff import removed - no longer using Together.ai fallbacks
+import sentry_sdk
+from prometheus_client import start_http_server, Counter
 
 # Try to import torch, but handle the case where it's not available
 try:
@@ -97,23 +53,20 @@ class SimpleEmbeddings:
 load_dotenv()
 
 # Initialize monitoring
-REQUEST_COUNTER = None
-if SENTRY_AVAILABLE:
-    sentry_dsn = os.getenv('SENTRY_DSN')
-    if sentry_dsn:
-        sentry_sdk.init(sentry_dsn)
+sentry_dsn = os.getenv('SENTRY_DSN')
+if sentry_dsn:
+    sentry_sdk.init(sentry_dsn)
 
 # Start Prometheus metrics server on a different port to avoid conflicts
-if PROMETHEUS_AVAILABLE:
-    try:
-        start_http_server(8001)  # Changed from 8000 to 8001
-        REQUEST_COUNTER = Counter('app_requests', 'Total API requests')
-    except OSError as e:
-        if "Address already in use" in str(e):
-            print(f"Warning: Prometheus metrics server port 8001 is in use. Metrics will not be available.")
-            REQUEST_COUNTER = None
-        else:
-            raise e
+try:
+    start_http_server(8001)  # Changed from 8000 to 8001
+    REQUEST_COUNTER = Counter('app_requests', 'Total API requests')
+except OSError as e:
+    if "Address already in use" in str(e):
+        print(f"Warning: Prometheus metrics server port 8001 is in use. Metrics will not be available.")
+        REQUEST_COUNTER = None
+    else:
+        raise e
 
 # Configure logging
 logging.basicConfig(
@@ -127,10 +80,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize caching
-if CACHE_AVAILABLE:
-    response_cache = TTLCache(maxsize=1000, ttl=3600)  # 1 hour cache
-else:
-    response_cache = {}  # Simple dict fallback
+response_cache = TTLCache(maxsize=1000, ttl=3600)  # 1 hour cache
 
 # --- UI CONFIG & STYLE (Retained from original) ---
 st.set_page_config(page_title="DigiTwin RAG Forecast", layout="wide")
@@ -173,46 +123,55 @@ Please provide clear, professional summaries that can be used by management for 
     "Safety Violation Analysis": """You are DigiTwin, a safety expert specializing in industrial safety analysis. Your task is to identify and analyze safety violations from inspection reports. Focus on:
 
 1. **Violation Classification**: Categorize violations by severity (Critical, Major, Minor)
-2. **Root Cause Analysis**: Identify underlying causes and contributing factors
-3. **Corrective Actions**: Recommend specific corrective and preventive actions
-4. **Regulatory References**: Cite relevant safety standards and regulations
-5. **Timeline Assessment**: Evaluate urgency and establish priority timelines for remediation
+2. **Root Cause Analysis**: Identify underlying causes of safety violations
+3. **Immediate Actions Required**: Specify urgent safety measures needed
+4. **Preventive Measures**: Suggest long-term solutions to prevent recurrence
+5. **Regulatory Impact**: Assess compliance implications and potential penalties
 
-Ensure all analysis is thorough, factual, and actionable for safety management teams.""",
+Provide detailed analysis that helps prioritize safety improvements and ensures regulatory compliance.""",
+    
+    "Equipment Performance Review": """You are DigiTwin, an equipment reliability specialist. Analyze equipment performance data and inspection reports to provide:
 
-    "Equipment Performance Review": """You are DigiTwin, a maintenance and reliability engineer with expertise in industrial equipment performance analysis. Your mission is to evaluate equipment performance data and provide insights on:
+1. **Performance Metrics**: Key performance indicators and their trends
+2. **Maintenance Status**: Current maintenance requirements and schedules
+3. **Equipment Health**: Overall condition assessment and remaining useful life
+4. **Efficiency Analysis**: Operational efficiency and optimization opportunities
+5. **Replacement Planning**: Recommendations for equipment upgrades or replacements
 
-1. **Performance Metrics**: Analysis of key performance indicators and operational efficiency
-2. **Maintenance Needs**: Identification of required maintenance activities and schedules
-3. **Reliability Assessment**: Evaluation of equipment reliability and failure patterns
-4. **Optimization Opportunities**: Recommendations for performance improvements
-5. **Cost-Benefit Analysis**: Economic evaluation of maintenance and upgrade options
+Focus on data-driven insights that support maintenance planning and capital investment decisions.""",
+    
+    "Compliance Assessment": """You are DigiTwin, a compliance expert specializing in industrial regulations. Conduct comprehensive compliance assessments covering:
 
-Provide technical, data-driven recommendations that support optimal equipment performance and cost-effectiveness.""",
+1. **Regulatory Framework**: Applicable regulations and standards
+2. **Compliance Status**: Current compliance levels and gaps
+3. **Documentation Review**: Adequacy of required documentation and records
+4. **Training Requirements**: Staff training needs for compliance
+5. **Audit Readiness**: Preparation status for regulatory audits
 
-    "Compliance Assessment": """You are DigiTwin, a compliance specialist with extensive knowledge of industrial regulations, standards, and best practices. Your objective is to assess compliance status and provide guidance on:
+Provide actionable recommendations to achieve and maintain full compliance.""",
+    
+    "Risk Management Analysis": """You are DigiTwin, a risk management specialist. Conduct thorough risk assessments focusing on:
 
-1. **Regulatory Adherence**: Evaluation against applicable regulations and standards
-2. **Gap Analysis**: Identification of compliance gaps and non-conformities
-3. **Remediation Plans**: Development of action plans to address compliance issues
-4. **Documentation Review**: Assessment of required documentation and record-keeping
-5. **Audit Readiness**: Preparation recommendations for regulatory audits
+1. **Risk Identification**: Comprehensive identification of operational risks
+2. **Risk Evaluation**: Assessment of risk likelihood and impact
+3. **Risk Prioritization**: Ranking of risks by severity and urgency
+4. **Mitigation Strategies**: Development of risk reduction measures
+5. **Monitoring Plans**: Continuous risk monitoring and review processes
 
-Ensure all assessments are accurate, comprehensive, and aligned with current regulatory requirements.""",
+Provide strategic risk management guidance that supports organizational decision-making.""",
+    
+    "Pivot Table Analysis": """You are DigiTwin, a data analysis expert specializing in notification data analysis. Analyze the pivot table data and provide insights on:
 
-    "Custom Analysis": """You are DigiTwin, an industrial intelligence specialist capable of performing comprehensive analysis across multiple domains including safety, maintenance, compliance, and operational efficiency. Adapt your analysis based on the specific context and requirements of the provided data, focusing on actionable insights and recommendations that support informed decision-making."""
+1. **Notification Patterns**: Identify trends in notification types and frequencies
+2. **Work Center Performance**: Analyze notification distribution across work centers
+3. **FPSO Analysis**: Examine notification patterns by FPSO location
+4. **Temporal Trends**: Identify time-based patterns in notification creation
+5. **Operational Insights**: Provide actionable recommendations based on data patterns
+
+Focus on identifying operational inefficiencies, maintenance trends, and opportunities for process improvement. Use the pivot table data to support your analysis with specific numbers and percentages."""
 }
 
-# Model configuration mapping for original models
-MODEL_CONFIGS = {
-    "EE Smartest Agent": "grok-4-latest",
-    "JI Divine Agent": "Llama-4-Maverick-17B-128E-Instruct", 
-    "EdJa-Valonys": "llama-4-scout-17b-16e-instruct",
-    "XAI Inspector": "local",
-    "Valonys Llama": "local_llama"
-}
-
-# Session state initialization
+# --- State Management ---
 class AppState:
     @staticmethod
     def initialize():
@@ -235,10 +194,6 @@ class DocumentProcessor:
     @staticmethod
     @st.cache_resource(show_spinner=False)
     def process_pdfs(_files):
-        if not PDF_AVAILABLE or not LANGCHAIN_AVAILABLE:
-            st.error("PDF processing not available. Missing required dependencies.")
-            return []
-        
         try:
             parsed_docs = []
             for f in _files:
@@ -253,10 +208,6 @@ class DocumentProcessor:
 
     @staticmethod
     def build_vectorstore(_docs):
-        if not LANGCHAIN_AVAILABLE:
-            logger.warning("LangChain not available, using simple text storage")
-            return SimpleTextStore(_docs) if _docs else None
-            
         try:
             # Try to use HuggingFace embeddings first
             try:
@@ -279,7 +230,7 @@ class DocumentProcessor:
             logger.error(f"Vectorstore creation failed: {str(e)}")
             # Fallback to a simpler approach without embeddings
             logger.info("Falling back to simple text storage")
-            return SimpleTextStore(_docs) if _docs else None
+            return None
 
 # --- Enhanced Model Clients ---
 # ModelClient class removed - no longer using Together.ai fallbacks
@@ -473,247 +424,232 @@ def generate_response(prompt):
                     elif "analyze" in user_prompt.lower() or "analysis" in user_prompt.lower():
                         response = f"Analysis of the provided content: {user_prompt[:100]}... [Analysis generated by Valonys Llama fallback mode]"
                     else:
-                        response = f"Response to your query: {user_prompt[:100]}... [Generated by Valonys Llama fallback mode]"
+                        response = f"Response to your query: {user_prompt[:100]}... [Response generated by Valonys Llama fallback mode]"
                     
-                    # Stream the response word by word
                     for word in response.split():
                         full_response += word + " "
                         yield f"<span style='font-family:Tw Cen MT'>{word} </span>"
                         time.sleep(0.01)
                         
-                except Exception as fallback_e:
-                    logger.error(f"Valonys Llama fallback failed: {str(fallback_e)}")
-                    error_msg = "⚠️ Local Llama Model Error: PyTorch not available and fallback failed"
+                except Exception as fallback_error:
+                    logger.error(f"Fallback generation failed: {str(fallback_error)}")
+                    error_msg = "⚠️ Local Model Error: PyTorch not available for HuggingFace models"
                     yield f"<span style='color:red'>{error_msg}</span>"
-
+        
+        # Cache the successful response
+        response_cache[cache_key] = full_response
+        
     except Exception as e:
         error_msg = f"<span style='color:red'>⚠️ Error: {str(e)}</span>"
         logger.error(f"Generation failed: {str(e)}")
         yield error_msg
+        raise
 
-# Initialize vector store with database integration
-if VECTOR_STORE_AVAILABLE:
-    vector_store = VectorStore()
-else:
-    # Simple fallback when vector_store is not available
-    class FallbackVectorStore:
-        def get_cached_files(self):
-            return []
-        def load_cached_file(self, filename):
-            return None
-        def process_excel_to_documents(self, files):
-            return []
-        def create_notification_pivot_tables(self):
-            return {}
-    vector_store = FallbackVectorStore()
-
-# --- MAIN UI ---
+# --- Main UI Components ---
 with st.sidebar:
-    # Logo at the top
-    st.image("https://raw.githubusercontent.com/achilela/vila_fofoka_analysis/4d7f7962ad5b1b0b89e3065cd9d8d0a398b09b8b/ValonyLabs_Logo.png", width=200)
-    
-    st.header("⚙️ Model Configuration")
-    
-    # Model selection
-    selected_model = st.selectbox(
-        "🤖 Select Model:",
-        options=list(MODEL_CONFIGS.keys()),
-        index=0 if "current_model" not in st.session_state else list(MODEL_CONFIGS.keys()).index(st.session_state.current_model) if st.session_state.current_model in MODEL_CONFIGS else 0
+    # Logo at the top of sidebar
+    st.markdown(
+        """
+        <div style="text-align: center; margin-bottom: 20px;">
+            <img src="https://github.com/valonys/DigiTwin/blob/29dd50da95bec35a5abdca4bdda1967f0e5efff6/ValonyLabs_Logo.png?raw=true" width="120" style="margin-bottom: 10px;">
+            <h3 style="margin: 0; color: #1f77b4;">DigiTwin</h3>
+            <p style="margin: 0; font-size: 0.8em; color: #666;">The Insp Nerdzx</p>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
     
-    # Update session state
-    if selected_model != st.session_state.current_model:
-        st.session_state.current_model = selected_model
-        st.session_state.model_intro_done = False
+    st.markdown("---")  # Separator line
     
-    # Analysis type selection
-    selected_prompt = st.selectbox(
-        "📋 Analysis Type:",
-        options=list(PROMPTS.keys()),
-        index=0 if "current_prompt" not in st.session_state else list(PROMPTS.keys()).index(st.session_state.current_prompt) if st.session_state.current_prompt in PROMPTS else 0
-    )
+    model_alias = st.selectbox("Choose your AI Agent", [
+        "EE Smartest Agent", "JI Divine Agent", "EdJa-Valonys", "XAI Inspector", "Valonys Llama"
+    ])
     
-    if selected_prompt != st.session_state.current_prompt:
-        st.session_state.current_prompt = selected_prompt
-        st.session_state.model_intro_done = False
+    file_type = st.radio("Select file type", ["PDF", "Excel"])
     
-    st.markdown("---")
+    if file_type == "PDF":
+        uploaded_files = st.file_uploader("📄 Upload up to 10 PDF reports", type=["pdf"], accept_multiple_files=True)
+    else:
+        uploaded_files = st.file_uploader("📊 Upload Excel file", type=["xlsx", "xls"], accept_multiple_files=False)
     
-    # Database integration - Cached files section
-    st.header("📁 Cached Files")
-    try:
-        cached_files = vector_store.get_cached_files()
-        if cached_files:
-            file_options = ["None"] + [f['filename'] for f in cached_files]
-            selected_cached_file = st.selectbox(
-                "Load from cache:",
-                options=file_options,
-                key="cached_file_selector"
-            )
-            
-            if selected_cached_file != "None":
-                if st.button("📂 Load Selected File", key="load_cached_btn"):
-                    with st.spinner(f"Loading {selected_cached_file}..."):
-                        cached_data = vector_store.load_cached_file(selected_cached_file)
-                        if cached_data:
-                            st.success(f"✅ Loaded {selected_cached_file}")
-                            st.session_state['cached_file_loaded'] = selected_cached_file
-                        else:
-                            st.error("❌ Failed to load file")
-        else:
-            st.info("No cached files available")
-    except Exception as e:
-        logger.error(f"Error accessing cached files: {str(e)}")
-        st.warning("Cache unavailable")
+    prompt_type = st.selectbox("Select the Task Type", list(PROMPTS.keys()))
 
-# Display selected model on main canvas
-st.info(f"🤖 **Active Model**: {selected_model}")
+# --- Pivot Table Display ---
+if 'pivot_summary' in st.session_state and st.session_state.pivot_summary:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📊 Data Analysis Summary")
+    st.sidebar.markdown(st.session_state.pivot_summary)
 
-# --- FILE UPLOAD SECTION ---
-st.header("📄 Document Upload")
-
-# File type selection
-file_types = ["PDF", "Text Files", "Excel Files"]
-selected_file_type = st.selectbox("Select file type:", file_types)
-
-# File upload
-uploaded_files = None
-if selected_file_type == "PDF":
-    uploaded_files = st.file_uploader("Upload PDF files", type=["pdf"], accept_multiple_files=True)
-elif selected_file_type == "Text Files":
-    uploaded_files = st.file_uploader("Upload text files", type=["txt"], accept_multiple_files=True)
-elif selected_file_type == "Excel Files":
-    uploaded_files = st.file_uploader("Upload Excel files", type=["xlsx", "xls"], accept_multiple_files=True)
-
-# Process uploaded files
+# --- Document Processing ---
 if uploaded_files:
     try:
-        if selected_file_type == "PDF":
-            documents = DocumentProcessor.process_pdfs(uploaded_files)
-            if documents:
-                st.session_state.vectorstore = DocumentProcessor.build_vectorstore(documents)
-                if st.session_state.vectorstore:
-                    st.success(f"✅ Processed {len(documents)} PDF documents")
-                else:
-                    st.warning("⚠️ Vectorstore creation failed, using simple text storage")
-                    st.session_state.vectorstore = SimpleTextStore(documents)
+        if file_type == "PDF":
+            parsed_docs = DocumentProcessor.process_pdfs(uploaded_files)
+            st.session_state.vectorstore = DocumentProcessor.build_vectorstore(parsed_docs)
+            st.sidebar.success(f"{len(parsed_docs)} reports indexed.")
+        else:
+            # Enhanced Excel processing with pivot table support
+            vector_store = VectorStore()
+            
+            # Define target columns for notification analysis
+            target_columns = ['Notifictn', 'Created on', 'Description', 'Main WorkCtr', 'FPSO']
+            
+            # Handle single Excel file (not a list)
+            excel_docs = vector_store.process_excel_to_documents([uploaded_files], target_columns)
+            if excel_docs:
+                st.session_state.vectorstore = vector_store.process_documents(excel_docs)
+                st.session_state.vector_store_instance = vector_store  # Store for pivot operations
                 
-        elif selected_file_type == "Text Files":
-            if not LANGCHAIN_AVAILABLE:
-                st.error("Text file processing not available. Missing required dependencies.")
-            else:
-                documents = []
-                for f in uploaded_files:
-                    text = str(f.read(), "utf-8")
-                    documents.append(LCDocument(page_content=text, metadata={"name": f.name}))
+                # Create pivot tables for analysis
+                pivot_results = vector_store.create_notification_pivot_tables()
+                if pivot_results:
+                    st.session_state.pivot_results = pivot_results
+                    pivot_summary = vector_store.get_pivot_table_summary(pivot_results)
+                    st.session_state.pivot_summary = pivot_summary
                 
-                if documents:
-                    st.session_state.vectorstore = DocumentProcessor.build_vectorstore(documents)
-                    if st.session_state.vectorstore:
-                        st.success(f"✅ Processed {len(documents)} text documents")
-                    else:
-                        st.warning("⚠️ Vectorstore creation failed, using simple text storage")
-                        st.session_state.vectorstore = SimpleTextStore(documents)
-                    
-        elif selected_file_type == "Excel Files":
-            # Use vector_store for Excel processing with database integration
-            documents = vector_store.process_excel_to_documents(uploaded_files)
-            if documents:
-                st.success(f"✅ Processed {len(uploaded_files)} Excel files with database caching")
-                
-                # Show pivot table creation option
-                if st.button("🔄 Create Notification Pivot Tables"):
-                    with st.spinner("Creating pivot tables..."):
-                        pivot_results = vector_store.create_notification_pivot_tables()
-                        if pivot_results:
-                            st.success("✅ Pivot tables created and cached")
-                            
-                            # Store pivot summary in session state for RAG context
-                            pivot_summary = []
-                            for table_name, data in pivot_results.items():
-                                if isinstance(data, dict) and 'summary' in data:
-                                    pivot_summary.append(f"{table_name}: {data['summary']}")
-                                else:
-                                    pivot_summary.append(f"{table_name}: {str(data)[:100]}...")
-                            
-                            st.session_state.pivot_summary = "\n".join(pivot_summary)
-                            
-                            # Display some results
-                            with st.expander("📊 View Pivot Results"):
-                                for table_name, data in list(pivot_results.items())[:3]:
-                                    st.subheader(f"📈 {table_name}")
-                                    if isinstance(data, dict) and 'data' in data:
-                                        st.json(data['data'])
-                                    else:
-                                        st.write(data)
-                        else:
-                            st.warning("⚠️ No pivot tables created")
-    
+                st.sidebar.success(f"{len(excel_docs)} notification chunks indexed. Pivot tables created.")
     except Exception as e:
-        st.error(f"❌ Error processing files: {str(e)}")
-        logger.error(f"File processing error: {str(e)}")
+        st.sidebar.error(f"Processing error: {str(e)}")
+        logger.exception("Document processing failed")
+        # Fallback to simple text storage
+        try:
+            if file_type == "PDF":
+                # For PDFs, try to extract text directly
+                import PyPDF2
+                text_content = ""
+                for file in uploaded_files:
+                    try:
+                        pdf_reader = PyPDF2.PdfReader(file)
+                        for page in pdf_reader.pages:
+                            text_content += page.extract_text() + "\n"
+                    except Exception as pdf_error:
+                        logger.error(f"PDF extraction failed: {str(pdf_error)}")
+                        continue
+                
+                if text_content.strip():
+                    # Create a simple document
+                    from langchain.schema import Document
+                    doc = Document(page_content=text_content, metadata={"source": "pdf_fallback"})
+                    st.session_state.vectorstore = SimpleTextStore([doc])
+                    st.sidebar.success("PDF processed with fallback method.")
+            else:
+                # For Excel, try to read as text
+                try:
+                    import pandas as pd
+                    df = pd.read_excel(uploaded_files)
+                    text_content = df.to_string(index=False)
+                    from langchain.schema import Document
+                    doc = Document(page_content=text_content, metadata={"source": "excel_fallback"})
+                    st.session_state.vectorstore = SimpleTextStore([doc])
+                    st.sidebar.success("Excel processed with fallback method.")
+                except Exception as excel_error:
+                    logger.error(f"Excel fallback failed: {str(excel_error)}")
+                    st.sidebar.error("Could not process file with any method.")
+        except Exception as fallback_error:
+            logger.error(f"Fallback processing failed: {str(fallback_error)}")
+            st.sidebar.error("Document processing completely failed.")
 
 # --- CHAT INTERFACE ---
-st.header("💬 Analysis Chat")
 
-# Initialize chat history
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Model introduction
-if not st.session_state.model_intro_done and st.session_state.current_model and st.session_state.current_prompt:
-    intro_message = f"🤖 **{st.session_state.current_model}** is now active for **{st.session_state.current_prompt}**. How can I assist you with your industrial analysis?"
+# Agent Introduction Logic
+if not st.session_state.model_intro_done or \
+   st.session_state.current_model != model_alias or \
+   st.session_state.current_prompt != prompt_type:
     
-    with st.chat_message("assistant", avatar=BOT_AVATAR):
-        st.markdown(intro_message)
+    agent_intros = {
+        "EE Smartest Agent": "💡 EE Agent Activated — Pragmatic & Smart",
+        "JI Divine Agent": "✨ JI Agent Activated — DeepSeek Reasoning",
+        "EdJa-Valonys": "⚡ EdJa Agent Activated — Cerebras Speed",
+        "XAI Inspector": "🔍 XAI Inspector — Qwen Custom Fine-tune",
+        "Valonys Llama": "🦙 Valonys Llama — LLaMA3-Based Reasoning"
+    }
     
-    st.session_state.messages.append({"role": "assistant", "content": intro_message})
+    intro_message = agent_intros.get(model_alias, "🤖 AI Agent Activated")
+    st.session_state.chat_history.append({
+        "role": "assistant", 
+        "content": intro_message,
+        "timestamp": time.time()
+    })
     st.session_state.model_intro_done = True
+    st.session_state.current_model = model_alias
+    st.session_state.current_prompt = prompt_type
+    logger.info(f"Switched to model: {model_alias} with prompt: {prompt_type}")
 
-# Display chat messages
-for message in st.session_state.messages:
-    avatar = USER_AVATAR if message["role"] == "user" else BOT_AVATAR
-    with st.chat_message(message["role"], avatar=avatar):
-        st.markdown(message["content"], unsafe_allow_html=True)
+# Display Chat History with Performance Metrics
+for msg in st.session_state.chat_history:
+    with st.chat_message(
+        msg["role"], 
+        avatar=USER_AVATAR if msg["role"] == "user" else BOT_AVATAR
+    ):
+        # Add subtle timestamp for production debugging
+        timestamp = ""
+        if "timestamp" in msg:
+            timestamp = f"<small style='color:#888;float:right;'>\
+            {time.strftime('%H:%M:%S', time.localtime(msg['timestamp']))}</small>"
+        
+        st.markdown(f"{msg['content']}{timestamp}", unsafe_allow_html=True)
 
-# Chat input
-if prompt := st.chat_input("Ask about your documents..."):
-    # Add user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
+# Chat Input with Enhanced Features
+if prompt := st.chat_input("Ask a summary or forecast about the reports..."):
+    # Validate input before processing
+    if len(prompt.strip()) < 3:
+        st.warning("Please enter a more detailed question")
+        st.stop()
+    
+    # Add user message to history with timestamp
+    st.session_state.chat_history.append({
+        "role": "user",
+        "content": prompt,
+        "timestamp": time.time()
+    })
+    
+    # Display user message
     with st.chat_message("user", avatar=USER_AVATAR):
         st.markdown(prompt)
     
-    # Generate AI response
+    # Generate and stream response
     with st.chat_message("assistant", avatar=BOT_AVATAR):
-        message_placeholder = st.empty()
+        response_placeholder = st.empty()
         full_response = ""
+        start_time = time.time()
         
         try:
-            for response_chunk in generate_response(prompt):
-                full_response += response_chunk
-                message_placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
+            for chunk in generate_response(prompt):
+                full_response += chunk
+                response_placeholder.markdown(
+                    f"{full_response}▌", 
+                    unsafe_allow_html=True
+                )
             
-            message_placeholder.markdown(full_response, unsafe_allow_html=True)
+            # Final render
+            response_placeholder.markdown(full_response, unsafe_allow_html=True)
             
-            # Add assistant response to chat history
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
+            # Log performance metrics
+            duration = time.time() - start_time
+            logger.info(f"Generated response in {duration:.2f}s for prompt: {prompt[:50]}...")
             
-            # Cache the response
-            cache_key = f"{prompt}_{st.session_state.current_model}_{st.session_state.current_prompt}"
-            response_cache[cache_key] = full_response
+            # Add to history with metadata
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": full_response,
+                "timestamp": time.time(),
+                "metadata": {
+                    "response_time": duration,
+                    "model": st.session_state.current_model,
+                    "prompt_type": st.session_state.current_prompt
+                }
+            })
             
         except Exception as e:
-            error_msg = f"❌ Error generating response: {str(e)}"
-            st.error(error_msg)
-            logger.error(f"Chat error: {str(e)}")
+            error_msg = f"<span style='color:red'>⚠️ System Error: Please try again later</span>"
+            response_placeholder.markdown(error_msg, unsafe_allow_html=True)
+            logger.error(f"Response generation failed: {str(e)}")
+            sentry_sdk.capture_exception(e)
 
-# Add ValonyLabs branding at bottom
-st.markdown("---")
-st.markdown(
-    "<div style='text-align: center; color: #666; font-size: 14px;'>"
-    "DigiTwin - Industrial Intelligence System | Powered by ValonyLabs"
-    "</div>", 
-    unsafe_allow_html=True
-)
-
-logger.info("DigiTwin application started successfully")
+if __name__ == "__main__":
+    # Production configuration checks
+    # Together API key check removed - no longer using Together.ai
+    if not os.getenv('HF_TOKEN'):
+        logger.warning("HuggingFace token not set")
+    
+    logger.info("Application started")
