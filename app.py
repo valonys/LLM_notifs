@@ -50,11 +50,26 @@ except ImportError as e:
     class DocumentProcessor(FallbackComponent):
         def __init__(self, config=None):
             super().__init__()
-    VectorStore = FallbackComponent
-    ModelManager = FallbackComponent
-    QueryRouter = FallbackComponent
-    PivotAnalyzer = FallbackComponent
-    EmbeddingManager = FallbackComponent
+    
+    class VectorStore(FallbackComponent):
+        def __init__(self, config=None):
+            super().__init__()
+            
+    class ModelManager(FallbackComponent):
+        def __init__(self, config=None):
+            super().__init__()
+            
+    class QueryRouter(FallbackComponent):
+        def __init__(self, config=None):
+            super().__init__()
+            
+    class PivotAnalyzer(FallbackComponent):
+        def __init__(self, config=None):
+            super().__init__()
+            
+    class EmbeddingManager(FallbackComponent):
+        def __init__(self, config=None):
+            super().__init__()
     INDUSTRIAL_PROMPTS = {
         "Daily Report Summarization": "You are DigiTwin, an expert inspector. Analyze and summarize the provided reports.",
         "Safety Violation Analysis": "You are DigiTwin, a safety expert. Analyze safety violations and provide recommendations.",
@@ -100,6 +115,9 @@ def initialize_components():
         # Initialize components
         components = {}
         
+        # Initialize config first
+        config = Config()
+        
         # Database manager
         components['database_manager'] = DatabaseManager()
         
@@ -107,23 +125,22 @@ def initialize_components():
         components['cache_manager'] = CacheManager()
         
         # Embedding manager
-        components['embedding_manager'] = EmbeddingManager()
+        components['embedding_manager'] = EmbeddingManager(config)
         
         # Vector store
-        components['vector_store'] = VectorStore()
+        components['vector_store'] = VectorStore(config)
         
         # Document processor
-        config = Config()
         components['document_processor'] = DocumentProcessor(config)
         
         # Model manager
         components['model_manager'] = ModelManager(config)
         
         # Query router
-        components['query_router'] = QueryRouter()
+        components['query_router'] = QueryRouter(config)
         
         # Pivot analyzer
-        components['pivot_analyzer'] = PivotAnalyzer()
+        components['pivot_analyzer'] = PivotAnalyzer(config)
         
         logger.info("All components initialized successfully")
         return components
