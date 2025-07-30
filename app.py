@@ -706,8 +706,10 @@ if st.session_state.last_processed:
 # Add ValonyLabs branding at bottom
 st.markdown("---")
 st.markdown(
-    "<div style='text-align: center; color: #666; font-size: 14px;'>"
-    "DigiTwin - Industrial Intelligence System | Powered by ValonyLabs"
+    "<div style='text-align: center; font-size: 14px; font-weight: bold;'>"
+    "<span style='color: #1f4e79;'>DigiTwin - Industrial Intelligence System</span> | "
+    "<span style='color: #000000;'>Powered by ValonyLabs</span> "
+    "<span style='color: #1f4e79;'>(www.valonylabs.com)</span>"
     "</div>", 
     unsafe_allow_html=True
 )
