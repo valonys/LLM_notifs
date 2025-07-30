@@ -7,6 +7,23 @@ import json
 import re
 from dataclasses import dataclass
 
+class DateTimeEncoder(json.JSONEncoder):
+    """Custom JSON encoder for handling datetime objects"""
+    def default(self, obj):
+        if isinstance(obj, (datetime, pd.Timestamp)):
+            return obj.isoformat()
+        elif isinstance(obj, pd.Period):
+            return str(obj)
+        elif isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif pd.isna(obj):
+            return None
+        return super().default(obj)
+
 try:
     import plotly.express as px
     import plotly.graph_objects as go
@@ -429,8 +446,17 @@ class PivotAnalyzer:
             # Execute query
             result = self.execute_query(sql_ops, self.data_cache)
             
+            # Convert DataFrame to JSON-serializable format
+            if hasattr(result.data, 'to_dict'):
+                # Convert DataFrame to dict with proper datetime handling
+                data_dict = result.data.to_dict('records')
+                # Clean the data to ensure JSON serializability
+                cleaned_data = json.loads(json.dumps(data_dict, cls=DateTimeEncoder))
+            else:
+                cleaned_data = result.data
+            
             return {
-                'data': result.data.to_dict() if hasattr(result.data, 'to_dict') else result.data,
+                'data': cleaned_data,
                 'summary': result.summary,
                 'insights': result.insights,
                 'metadata': result.metadata
@@ -512,12 +538,15 @@ class PivotAnalyzer:
                 date_cols = df.select_dtypes(include=['datetime64']).columns
                 if len(date_cols) > 0:
                     date_col = date_cols[0]
-                    date_range = df[date_col].max() - df[date_col].min()
-                    insights.append({
-                        'category': 'Temporal Coverage',
-                        'description': f'Data spans {date_range.days} days',
-                        'recommendation': 'Consider seasonal patterns in your analysis'
-                    })
+                    max_date = df[date_col].max()
+                    min_date = df[date_col].min()
+                    if pd.notna(max_date) and pd.notna(min_date):
+                        date_range = max_date - min_date
+                        insights.append({
+                            'category': 'Temporal Coverage',
+                            'description': f'Data spans {date_range.days} days',
+                            'recommendation': 'Consider seasonal patterns in your analysis'
+                        })
             
             return insights[:10]  # Limit to top 10 insights
             
