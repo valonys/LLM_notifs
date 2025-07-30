@@ -293,8 +293,17 @@ class PivotAnalyzer:
                 # Simple aggregation without grouping
                 if sql_ops.get('aggregations'):
                     agg = sql_ops['aggregations'][0]
+                    result_data = {}
                     if agg['function'] == 'count':
                         result_data = {'total_count': len(df)}
+                    elif agg['function'] == 'sum':
+                        numeric_cols = df.select_dtypes(include=[np.number]).columns
+                        if len(numeric_cols) > 0:
+                            result_data = {'total_sum': df[numeric_cols[0]].sum()}
+                    elif agg['function'] == 'average':
+                        numeric_cols = df.select_dtypes(include=[np.number]).columns
+                        if len(numeric_cols) > 0:
+                            result_data = {'average': df[numeric_cols[0]].mean()}
                     result_df = pd.DataFrame([result_data])
                 else:
                     result_df = df.head(10)

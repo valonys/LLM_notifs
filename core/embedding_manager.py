@@ -213,12 +213,17 @@ class EmbeddingManager:
                         batch,
                         convert_to_numpy=True,
                         show_progress_bar=False
-                    ).tolist()
+                    )
+                    # Convert numpy array to list properly
+                    if hasattr(batch_embeddings, 'tolist'):
+                        batch_embeddings = batch_embeddings.tolist()
+                    else:
+                        batch_embeddings = list(batch_embeddings)
                 elif hasattr(model, 'embed_documents'):
                     # LangChain style model
                     batch_embeddings = model.embed_documents(batch)
                 else:
-                    # Custom model interface
+                    # Custom model interface (including SimpleHashEmbedding)
                     batch_embeddings = model.generate_embeddings(batch)
                 
                 all_embeddings.extend(batch_embeddings)
