@@ -620,3 +620,77 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error creating notification summary: {str(e)}")
             return None
+    
+    def get_cached_files(self):
+        """Get list of cached files from database"""
+        if not self.db_manager or not self.db_manager.engine:
+            return []
+        
+        try:
+            with self.db_manager.engine.connect() as conn:
+                result = conn.execute(text("""
+                SELECT file_name, file_type, upload_date, file_size 
+                FROM uploaded_files 
+                ORDER BY upload_date DESC
+                """))
+                
+                files = []
+                for row in result:
+                    files.append({
+                        'filename': row[0],
+                        'file_type': row[1],
+                        'upload_date': row[2],
+                        'file_size': row[3]
+                    })
+                
+                return files
+                
+        except Exception as e:
+            logger.error(f"Error getting cached files: {str(e)}")
+            return []
+    
+    def load_cached_file(self, filename):
+        """Load a cached file from database"""
+        if not self.db_manager or not self.db_manager.engine:
+            return None
+        
+        try:
+            with self.db_manager.engine.connect() as conn:
+                # Get file data
+                result = conn.execute(text("""
+                SELECT file_data, file_type FROM uploaded_files 
+                WHERE file_name = :filename
+                """), {'filename': filename})
+                
+                row = result.fetchone()
+                if not row:
+                    return None
+                
+                file_data = row[0]
+                file_type = row[1]
+                
+                # Get processed documents
+                doc_result = conn.execute(text("""
+                SELECT content, metadata FROM processed_documents 
+                WHERE file_name = :filename
+                ORDER BY chunk_id
+                """), {'filename': filename})
+                
+                documents = []
+                for doc_row in doc_result:
+                    content = doc_row[0]
+                    metadata = json.loads(doc_row[1]) if doc_row[1] else {}
+                    documents.append({
+                        'content': content,
+                        'metadata': metadata
+                    })
+                
+                return {
+                    'file_data': file_data,
+                    'file_type': file_type,
+                    'documents': documents
+                }
+                
+        except Exception as e:
+            logger.error(f"Error loading cached file {filename}: {str(e)}")
+            return None
