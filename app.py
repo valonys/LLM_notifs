@@ -469,8 +469,10 @@ vector_store = VectorStore()
 
 # --- MAIN UI ---
 with st.sidebar:
-    # Logo at the top
-    st.image("attached_assets/ValonyLabs_Logo_1753908658100.png", width=120)
+    # Logo at the top - centered
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image("attached_assets/ValonyLabs_Logo_1753908658100.png", width=120)
     
     st.header("⚙️ Analysis Configuration")
     
