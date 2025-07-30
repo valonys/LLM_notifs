@@ -502,6 +502,24 @@ with st.sidebar:
     
     st.markdown("---")
     
+    # File Upload Section in Sidebar
+    st.header("📄 Document Upload")
+    
+    # File type selection
+    file_types = ["PDF", "Text Files", "Excel Files"]
+    selected_file_type = st.selectbox("Select file type:", file_types)
+    
+    # File upload
+    uploaded_files = None
+    if selected_file_type == "PDF":
+        uploaded_files = st.file_uploader("Upload PDF files", type=["pdf"], accept_multiple_files=True)
+    elif selected_file_type == "Text Files":
+        uploaded_files = st.file_uploader("Upload text files", type=["txt"], accept_multiple_files=True)
+    elif selected_file_type == "Excel Files":
+        uploaded_files = st.file_uploader("Upload Excel files", type=["xlsx", "xls"], accept_multiple_files=True)
+    
+    st.markdown("---")
+    
     # Database integration - Cached files section
     st.header("📁 Cached Files")
     try:
@@ -533,19 +551,12 @@ with st.sidebar:
 if st.session_state.current_model:
     st.info(f"🤖 **Active Model**: {st.session_state.current_model}")
 
-# --- FILE PROCESSING SECTION ---
-st.header("📄 Document Processing")
-
-# File upload tabs
-tab1, tab2, tab3 = st.tabs(["📄 PDF Files", "📝 Text Files", "📊 Excel Analysis"])
-
-with tab1:
-    pdf_files = st.file_uploader("Upload PDF Documents", type="pdf", accept_multiple_files=True, key="pdf_uploader")
-    
-    if pdf_files:
-        try:
+# Process uploaded files from sidebar
+if uploaded_files:
+    try:
+        if selected_file_type == "PDF":
             with st.spinner("Processing PDF documents..."):
-                documents = DocumentProcessor.process_pdfs(pdf_files)
+                documents = DocumentProcessor.process_pdfs(uploaded_files)
                 if documents:
                     vectorstore = DocumentProcessor.build_vectorstore(documents)
                     if vectorstore:
@@ -556,18 +567,11 @@ with tab1:
                         st.warning("⚠️ Vector store creation failed, using simple text storage")
                         st.session_state.vectorstore = SimpleTextStore(documents)
                         st.session_state.last_processed = f"{len(documents)} PDF files (simple storage)"
-        except Exception as e:
-            st.error(f"❌ Error processing PDFs: {str(e)}")
-            logger.error(f"PDF processing error: {str(e)}")
-
-with tab2:
-    text_files = st.file_uploader("Upload Text Documents", type="txt", accept_multiple_files=True, key="text_uploader")
-    
-    if text_files:
-        try:
+            
+        elif selected_file_type == "Text Files":
             with st.spinner("Processing text documents..."):
                 documents = []
-                for file in text_files:
+                for file in uploaded_files:
                     content = str(file.read(), "utf-8")
                     documents.append(LCDocument(page_content=content, metadata={"name": file.name}))
                 
@@ -581,70 +585,49 @@ with tab2:
                         st.warning("⚠️ Vector store creation failed, using simple text storage")
                         st.session_state.vectorstore = SimpleTextStore(documents)
                         st.session_state.last_processed = f"{len(documents)} text files (simple storage)"
-        except Exception as e:
-            st.error(f"❌ Error processing text files: {str(e)}")
-            logger.error(f"Text processing error: {str(e)}")
-
-with tab3:
-    excel_files = st.file_uploader("Upload Excel Files for Analysis", type=["xlsx", "xls"], accept_multiple_files=True, key="excel_uploader")
-    
-    if excel_files:
-        try:
+                        
+        elif selected_file_type == "Excel Files":
             with st.spinner("Processing Excel files and creating database cache..."):
                 # Use vector_store for Excel processing with database integration
-                documents = vector_store.process_excel_to_documents(excel_files)
+                documents = vector_store.process_excel_to_documents(uploaded_files)
                 if documents:
-                    st.success(f"✅ Processed {len(excel_files)} Excel files with database caching")
-                    st.session_state.last_processed = f"{len(excel_files)} Excel files"
+                    st.success(f"✅ Processed {len(uploaded_files)} Excel files with database caching")
+                    st.session_state.last_processed = f"{len(uploaded_files)} Excel files"
                     
-                    # Create pivot tables
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if st.button("🔄 Create Notification Pivot Tables", key="create_pivot_btn"):
-                            with st.spinner("Creating pivot tables..."):
-                                pivot_results = vector_store.create_notification_pivot_tables()
-                                if pivot_results:
-                                    st.success("✅ Pivot tables created and cached in database")
-                                    
-                                    # Store pivot summary in session state for RAG context
-                                    pivot_summary = []
-                                    for table_name, data in pivot_results.items():
-                                        if isinstance(data, dict) and 'summary' in data:
-                                            pivot_summary.append(f"{table_name}: {data['summary']}")
+                    # Show pivot table creation option
+                    if st.button("🔄 Create Notification Pivot Tables"):
+                        with st.spinner("Creating pivot tables..."):
+                            pivot_results = vector_store.create_notification_pivot_tables()
+                            if pivot_results:
+                                st.success("✅ Pivot tables created and cached")
+                                
+                                # Store pivot summary in session state for RAG context
+                                pivot_summary = []
+                                for table_name, data in pivot_results.items():
+                                    if isinstance(data, dict) and 'summary' in data:
+                                        pivot_summary.append(f"{table_name}: {data['summary']}")
+                                    else:
+                                        pivot_summary.append(f"{table_name}: {str(data)[:100]}...")
+                                
+                                st.session_state.pivot_summary = "\n".join(pivot_summary)
+                                st.session_state.pivot_results = pivot_results
+                                
+                                # Display some results
+                                with st.expander("📊 View Pivot Results"):
+                                    for table_name, data in list(pivot_results.items())[:3]:
+                                        st.subheader(f"📈 {table_name}")
+                                        if isinstance(data, dict) and 'data' in data:
+                                            st.json(data['data'])
                                         else:
-                                            pivot_summary.append(f"{table_name}: {str(data)[:100]}...")
-                                    
-                                    st.session_state.pivot_summary = "\n".join(pivot_summary)
-                                    st.session_state.pivot_results = pivot_results
-                                else:
-                                    st.warning("⚠️ No pivot tables created")
-                    
-                    with col2:
-                        if st.button("📊 Generate Data Summary", key="summary_btn"):
-                            with st.spinner("Generating data summary..."):
-                                summary = vector_store.get_notification_summary()
-                                if summary:
-                                    st.json(summary)
-                                else:
-                                    st.warning("⚠️ No summary available")
-                    
-                    # Display pivot results if available
-                    if 'pivot_results' in st.session_state and st.session_state.pivot_results:
-                        with st.expander("📈 View Pivot Table Results", expanded=False):
-                            for table_name, data in list(st.session_state.pivot_results.items())[:3]:
-                                st.subheader(f"📊 {table_name}")
-                                if isinstance(data, dict) and 'data' in data:
-                                    st.json(data['data'])
-                                else:
-                                    st.write(data)
-                                st.markdown("---")
+                                            st.write(data)
+                            else:
+                                st.warning("⚠️ No pivot tables created")
                 else:
                     st.warning("⚠️ No documents processed from Excel files")
-                    
-        except Exception as e:
-            st.error(f"❌ Error processing Excel files: {str(e)}")
-            logger.error(f"Excel processing error: {str(e)}")
+    
+    except Exception as e:
+        st.error(f"❌ Error processing files: {str(e)}")
+        logger.error(f"File processing error: {str(e)}")
 
 # --- CHAT INTERFACE ---
 st.header("💬 Industrial Analysis Chat")
