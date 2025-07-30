@@ -474,10 +474,10 @@ with st.sidebar:
     
     st.header("⚙️ Analysis Configuration")
     
-    # Model Selection
+    # Agent Selection
     model_options = ["EE Smartest Agent", "JI Divine Agent", "EdJa-Valonys", "XAI Inspector", "Valonys Llama"]
     selected_model = st.selectbox(
-        "🤖 AI Model:",
+        "🤖 Agent:",
         options=model_options,
         index=0,
         key="model_selector"
@@ -636,10 +636,8 @@ st.header("💬 Industrial Analysis Chat")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Agent introduction logic with concise messages
-if not st.session_state.model_intro_done or \
-   st.session_state.current_model != st.session_state.get("last_model") or \
-   st.session_state.current_prompt != st.session_state.get("last_prompt"):
+# Agent introduction logic - only when user makes a selection
+if st.session_state.current_model != st.session_state.get("last_model"):
     
     agent_intros = {
         "EE Smartest Agent": "💡 EE Agent Activated — Pragmatic & Smart",
@@ -649,16 +647,15 @@ if not st.session_state.model_intro_done or \
         "Valonys Llama": "🦙 Valonys Llama — LLaMA3-Based Reasoning"
     }
     
-    if st.session_state.current_model:
-        intro_message = agent_intros.get(st.session_state.current_model, "🤖 AI Agent Activated")
+    if st.session_state.current_model and st.session_state.get("last_model") is not None:
+        intro_message = agent_intros.get(st.session_state.current_model, "🤖 Agent Activated")
         
         with st.chat_message("assistant", avatar=BOT_AVATAR):
             st.markdown(intro_message)
         
         st.session_state.messages.append({"role": "assistant", "content": intro_message})
-        st.session_state.model_intro_done = True
-        st.session_state.last_model = st.session_state.current_model
-        st.session_state.last_prompt = st.session_state.current_prompt
+    
+    st.session_state.last_model = st.session_state.current_model
 
 # Display chat messages from history
 for message in st.session_state.messages:
@@ -667,7 +664,7 @@ for message in st.session_state.messages:
         st.markdown(message["content"], unsafe_allow_html=True)
 
 # Chat input
-if prompt := st.chat_input("Ask about your data analysis..."):
+if prompt := st.chat_input("Ask about inspection insights through data"):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user", avatar=USER_AVATAR):
