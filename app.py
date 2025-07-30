@@ -309,6 +309,23 @@ def generate_response(prompt):
         pivot_context = f"\n\nPIVOT TABLE ANALYSIS DATA:\n{st.session_state.pivot_summary}"
         messages.append({"role": "system", "content": pivot_context})
     
+    # Add FPSO selection context
+    if 'selected_fpso' in st.session_state and st.session_state.selected_fpso:
+        fpso_selection = st.session_state.selected_fpso
+        if fpso_selection != "All FPSOs":
+            fpso_context = f"\n\nCURRENT FPSO FOCUS: {fpso_selection}\nIMPORTANT: Focus your analysis specifically on {fpso_selection} FPSO operations. When analyzing notifications, work centers, or operational data, prioritize insights related to this specific FPSO."
+            messages.append({"role": "system", "content": fpso_context})
+        else:
+            messages.append({"role": "system", "content": "\n\nCURRENT ANALYSIS SCOPE: All FPSOs - Provide comprehensive analysis across all FPSO operations (GIR, DAL, PAZ, CLV)."})
+    
+    # Add detailed pivot results context if available
+    if 'pivot_results' in st.session_state and st.session_state.pivot_results:
+        pivot_details_context = f"\n\nAVAILABLE PIVOT ANALYSES:\n"
+        for table_name in st.session_state.pivot_results.keys():
+            pivot_details_context += f"- {table_name}\n"
+        pivot_details_context += "\nYou can reference these specific pivot table results when answering questions about trends, patterns, and operational insights."
+        messages.append({"role": "system", "content": pivot_details_context})
+    
     messages.append({"role": "user", "content": prompt})
     full_response = ""
 
@@ -634,14 +651,21 @@ if uploaded_files:
                                 st.session_state.pivot_summary = "\n".join(pivot_summary)
                                 st.session_state.pivot_results = pivot_results
                                 
-                                # Display some results
+                                # Display some results with FPSO context
+                                fpso_filter = st.session_state.get('selected_fpso', 'All FPSOs')
+                                st.success(f"✅ Pivot analysis completed for: **{fpso_filter}**")
+                                
                                 with st.expander("📊 View Pivot Results"):
+                                    st.write(f"**Analysis Focus**: {fpso_filter}")
                                     for table_name, data in list(pivot_results.items())[:3]:
                                         st.subheader(f"📈 {table_name}")
                                         if isinstance(data, dict) and 'data' in data:
                                             st.json(data['data'])
                                         else:
                                             st.write(data)
+                                
+                                # Add context message for chat interface
+                                st.info(f"💬 **Chat Ready**: Ask questions about the {fpso_filter} analysis. The agents now have access to your pivot data.")
                             else:
                                 st.warning("⚠️ No pivot tables created")
                 else:
