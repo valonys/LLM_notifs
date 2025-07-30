@@ -49,8 +49,9 @@ class SearchResult:
 class EnhancedVectorStore:
     """Enhanced vector store with multiple embedding strategies and retrieval methods"""
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, database_manager=None):
         self.config = config
+        self.database_manager = database_manager
         self.chunking_manager = ChunkingManager(config)
         self.embedding_manager = EmbeddingManager(config)
         

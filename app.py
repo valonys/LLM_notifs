@@ -15,6 +15,7 @@ from core.document_processor import AdvancedDocumentProcessor
 from core.model_manager import ModelManager
 from core.query_router import QueryRouter
 from core.pivot_analyzer import PivotAnalyzer
+from core.database_manager import DatabaseManager
 from utils.cache_manager import CacheManager
 from utils.error_handler import ErrorHandler
 from utils.config import Config
@@ -40,7 +41,14 @@ def initialize_components():
         cache_manager = CacheManager()
         error_handler = ErrorHandler()
         
-        vector_store = EnhancedVectorStore(config)
+        # Initialize database manager
+        try:
+            database_manager = DatabaseManager(config)
+        except Exception as e:
+            logger.warning(f"Database manager initialization failed: {str(e)}")
+            database_manager = None
+        
+        vector_store = EnhancedVectorStore(config, database_manager)
         document_processor = AdvancedDocumentProcessor(config)
         model_manager = ModelManager(config)
         query_router = QueryRouter(config)
@@ -50,6 +58,7 @@ def initialize_components():
             'config': config,
             'cache_manager': cache_manager,
             'error_handler': error_handler,
+            'database_manager': database_manager,
             'vector_store': vector_store,
             'document_processor': document_processor,
             'model_manager': model_manager,
@@ -517,7 +526,7 @@ def display_system_status():
     st.markdown("### 📊 System Status")
     
     # Status indicators
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         if st.session_state.processed_documents:
@@ -530,6 +539,44 @@ def display_system_status():
             st.success("Data: Ready")
         else:
             st.warning("Data: None")
+    
+    with col3:
+        # Database status
+        components = st.session_state.components
+        if components.get('database_manager'):
+            try:
+                health = components['database_manager'].health_check()
+                if health.get('status') == 'healthy':
+                    st.success("Database: Connected")
+                else:
+                    st.error("Database: Error")
+            except:
+                st.error("Database: Offline")
+        else:
+            st.warning("Database: Not configured")
+    
+    # Database statistics
+    if components.get('database_manager'):
+        with st.expander("🗄️ Database Statistics"):
+            try:
+                stats = components['database_manager'].get_database_stats()
+                if stats:
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.metric("Documents", stats.get('documents_count', 0))
+                        st.metric("Chunks", stats.get('document_chunks_count', 0))
+                        st.metric("Queries", stats.get('query_history_count', 0))
+                    with col_b:
+                        st.metric("Safety Incidents", stats.get('safety_incidents_count', 0))
+                        st.metric("Equipment Records", stats.get('equipment_count', 0))
+                        st.metric("Cache Entries", stats.get('cache_entries_count', 0))
+                    
+                    if stats.get('database_size'):
+                        st.info(f"Database Size: {stats['database_size']}")
+                else:
+                    st.info("Database statistics unavailable")
+            except Exception as e:
+                st.error(f"Database error: {str(e)}")
     
     # Query statistics
     if st.session_state.query_history:

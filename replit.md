@@ -23,6 +23,7 @@ The application follows a modular, component-based architecture with clear separ
 - **Vector Storage**: Enhanced vector store with multiple embedding strategies
 - **Model Management**: Multi-provider AI model support with intelligent routing
 - **Query Processing**: Smart routing between document analysis and pivot table generation
+- **Database Integration**: PostgreSQL database for persistent data storage and analytics
 
 ## Key Components
 
@@ -31,8 +32,9 @@ The application follows a modular, component-based architecture with clear separ
 2. **Document Processor (`core/document_processor.py`)**: Multi-format document processing with metadata extraction
 3. **Model Manager (`core/model_manager.py`)**: Multi-provider AI model management (OpenAI, Cerebras, xAI, local models)
 4. **Query Router (`core/query_router.py`)**: Intelligent query classification and routing
-5. **Pivot Analyzer (`core/pivot_analyzer.py`)**: Specialized data analysis for industrial metrics
+5. **Pivot Analyzer (`core/pivot_analyzer.py`)**: Specialized data analysis for industrial metrics with JSON serialization fix
 6. **Embedding Manager (`core/embedding_manager.py`)**: Multiple embedding model support with caching
+7. **Database Manager (`core/database_manager.py`)**: PostgreSQL database integration with SQLAlchemy ORM for persistent storage
 
 ### Utility Components
 1. **Cache Manager (`utils/cache_manager.py`)**: Multi-tier caching (memory + disk + database)
