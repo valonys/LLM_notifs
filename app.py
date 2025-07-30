@@ -636,7 +636,29 @@ st.header("💬 Industrial Analysis Chat")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Skip automatic model introduction messages - they are redundant
+# Agent introduction logic with concise messages
+if not st.session_state.model_intro_done or \
+   st.session_state.current_model != st.session_state.get("last_model") or \
+   st.session_state.current_prompt != st.session_state.get("last_prompt"):
+    
+    agent_intros = {
+        "EE Smartest Agent": "💡 EE Agent Activated — Pragmatic & Smart",
+        "JI Divine Agent": "✨ JI Agent Activated — DeepSeek Reasoning",
+        "EdJa-Valonys": "⚡ EdJa Agent Activated — Cerebras Speed",
+        "XAI Inspector": "🔍 XAI Inspector — Qwen Custom Fine-tune",
+        "Valonys Llama": "🦙 Valonys Llama — LLaMA3-Based Reasoning"
+    }
+    
+    if st.session_state.current_model:
+        intro_message = agent_intros.get(st.session_state.current_model, "🤖 AI Agent Activated")
+        
+        with st.chat_message("assistant", avatar=BOT_AVATAR):
+            st.markdown(intro_message)
+        
+        st.session_state.messages.append({"role": "assistant", "content": intro_message})
+        st.session_state.model_intro_done = True
+        st.session_state.last_model = st.session_state.current_model
+        st.session_state.last_prompt = st.session_state.current_prompt
 
 # Display chat messages from history
 for message in st.session_state.messages:
