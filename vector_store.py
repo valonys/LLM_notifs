@@ -443,6 +443,20 @@ class VectorStore:
         
         try:
             with self.db_manager.engine.connect() as conn:
+                # Ensure file exists in uploaded_files table first
+                conn.execute(text("""
+                INSERT INTO uploaded_files (file_name, file_type, file_data, upload_date, file_size, checksum)
+                VALUES (:file_name, :file_type, :file_data, :upload_date, :file_size, :checksum)
+                ON CONFLICT (file_name) DO NOTHING
+                """), {
+                    'file_name': file_name,
+                    'file_type': 'excel',
+                    'file_data': b'',  # Empty for now
+                    'upload_date': datetime.now(),
+                    'file_size': 0,
+                    'checksum': 'placeholder'
+                })
+                
                 # Clear existing documents for this file
                 conn.execute(text("""
                 DELETE FROM processed_documents WHERE file_name = :file_name
@@ -495,10 +509,10 @@ class VectorStore:
             logger.error(f"Error formatting DataFrame to text: {str(e)}")
             return df.to_string(index=False)
     
-    def create_notification_pivot_tables(self, date_range=None):
+    def create_notification_pivot_tables(self, date_range=None, fpso_filter=None):
         """
         Create pivot tables for notification data with database persistence
-        Target columns: Notifictn type, Created on, Description, Main WorkCtr, FPSO
+        Target columns: Main Work Ctr, Notifictn type, Description, Created on, FPSO, Completn date
         """
         if self.processed_data is None:
             return None
@@ -506,14 +520,19 @@ class VectorStore:
         try:
             df = self.processed_data.copy()
             
+            # Filter by FPSO if specified
+            if fpso_filter and fpso_filter != "All FPSOs" and 'FPSO' in df.columns:
+                df = df[df['FPSO'] == fpso_filter]
+                logger.info(f"Filtered data for FPSO: {fpso_filter}, Rows: {len(df)}")
+            
             # Filter by date range if specified
             if date_range and 'Created on' in df.columns:
                 df = self.pivot_manager.filter_data_by_date_range(
                     df, 'Created on', date_range.get('start'), date_range.get('end')
                 )
             
-            # Define target columns for notifications
-            target_columns = ['Notifictn', 'Created on', 'Description', 'Main WorkCtr', 'FPSO']
+            # Define target columns for notifications (key columns as requested)
+            target_columns = ['Main Work Ctr', 'Notifictn type', 'Description', 'Created on', 'FPSO', 'Completn date']
             available_columns = [col for col in target_columns if col in df.columns]
             
             if not available_columns:
@@ -523,17 +542,17 @@ class VectorStore:
             pivot_tables = {}
             
             # 1. Notifications by Type
-            if 'Notifictn' in available_columns:
+            if 'Notifictn type' in available_columns:
                 notif_pivot = self.pivot_manager.create_pivot_table(
-                    df, ['Notifictn'], aggfunc='count', file_name=self.current_file_name
+                    df, ['Notifictn type'], aggfunc='count', file_name=self.current_file_name
                 )
                 if notif_pivot is not None:
                     pivot_tables['Notifications by Type'] = notif_pivot
             
-            # 2. Notifications by Work Center
-            if 'Main WorkCtr' in available_columns:
+            # 2. Notifications by Work Center (Main Work Ctr)
+            if 'Main Work Ctr' in available_columns:
                 workctr_pivot = self.pivot_manager.create_pivot_table(
-                    df, ['Main WorkCtr'], aggfunc='count', file_name=self.current_file_name
+                    df, ['Main Work Ctr'], aggfunc='count', file_name=self.current_file_name
                 )
                 if workctr_pivot is not None:
                     pivot_tables['Notifications by Work Center'] = workctr_pivot
@@ -547,14 +566,22 @@ class VectorStore:
                     pivot_tables['Notifications by FPSO'] = fpso_pivot
             
             # 4. Cross-analysis: Type vs Work Center
-            if 'Notifictn' in available_columns and 'Main WorkCtr' in available_columns:
+            if 'Notifictn type' in available_columns and 'Main Work Ctr' in available_columns:
                 cross_pivot = self.pivot_manager.create_pivot_table(
-                    df, ['Notifictn', 'Main WorkCtr'], aggfunc='count', file_name=self.current_file_name
+                    df, ['Notifictn type', 'Main Work Ctr'], aggfunc='count', file_name=self.current_file_name
                 )
                 if cross_pivot is not None:
                     pivot_tables['Type vs Work Center'] = cross_pivot
             
-            # 5. Monthly trends if date column exists
+            # 5. FPSO vs Work Center Analysis
+            if 'FPSO' in available_columns and 'Main Work Ctr' in available_columns:
+                fpso_workctr_pivot = self.pivot_manager.create_pivot_table(
+                    df, ['FPSO', 'Main Work Ctr'], aggfunc='count', file_name=self.current_file_name
+                )
+                if fpso_workctr_pivot is not None:
+                    pivot_tables['FPSO vs Work Center'] = fpso_workctr_pivot
+            
+            # 6. Monthly trends if date column exists
             if 'Created on' in available_columns:
                 try:
                     df_copy = df.copy()
@@ -568,6 +595,20 @@ class VectorStore:
                         pivot_tables['Monthly Trends'] = monthly_pivot
                 except Exception as e:
                     logger.warning(f"Could not create monthly trends: {str(e)}")
+            
+            # 7. Completion Analysis (if completion date exists)
+            if 'Completn date' in available_columns:
+                try:
+                    df_copy = df.copy()
+                    df_copy['Is_Completed'] = df_copy['Completn date'].notna()
+                    
+                    completion_pivot = self.pivot_manager.create_pivot_table(
+                        df_copy, ['Is_Completed'], aggfunc='count', file_name=self.current_file_name
+                    )
+                    if completion_pivot is not None:
+                        pivot_tables['Completion Status'] = completion_pivot
+                except Exception as e:
+                    logger.warning(f"Could not create completion analysis: {str(e)}")
             
             return pivot_tables
             

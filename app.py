@@ -499,6 +499,15 @@ with st.sidebar:
         key="prompt_selector"
     )
     
+    # FPSO Selection for Analysis
+    st.subheader("🏗️ FPSO Focus")
+    fpso_options = ["All FPSOs", "GIR", "DAL", "PAZ", "CLV"]
+    selected_fpso = st.radio(
+        "Select FPSO:",
+        fpso_options,
+        key="fpso_selector"
+    )
+    
     # Update session state if selections changed
     if selected_model != st.session_state.current_model:
         st.session_state.current_model = selected_model
@@ -507,6 +516,9 @@ with st.sidebar:
     if selected_prompt != st.session_state.current_prompt:
         st.session_state.current_prompt = selected_prompt
         st.session_state.model_intro_done = False
+    
+    # Store FPSO selection in session state
+    st.session_state.selected_fpso = selected_fpso
     
     st.markdown("---")
     
@@ -605,7 +617,9 @@ if uploaded_files:
                     # Show pivot table creation option
                     if st.button("🔄 Create Notification Pivot Tables"):
                         with st.spinner("Creating pivot tables..."):
-                            pivot_results = vector_store.create_notification_pivot_tables()
+                            # Get current FPSO selection from session state
+                            fpso_filter = st.session_state.get('selected_fpso', 'All FPSOs')
+                            pivot_results = vector_store.create_notification_pivot_tables(fpso_filter=fpso_filter)
                             if pivot_results:
                                 st.success("✅ Pivot tables created and cached")
                                 

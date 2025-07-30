@@ -10,6 +10,10 @@ DigiTwin is a production-ready Retrieval-Augmented Generation (RAG) system desig
 - ✅ **Pivot Table Persistence**: Enhanced vector_store.py with database caching for pivot table operations
 - ✅ **Model Connections**: Restored original API configurations (XAI, DeepSeek, Cerebras) with proper streaming
 - ✅ **UI Preservation**: Maintained exact original styling, fonts ("Tw Cen MT"), and interface layout
+- ✅ **FPSO-Focused Analysis**: Added FPSO radio buttons (GIR, DAL, PAZ, CLV) in sidebar for targeted analysis
+- ✅ **Enhanced Pivot Analysis**: Focused on key columns (Main Work Ctr, Notifictn type, Description, Created on, FPSO, Completn date)
+- ✅ **Database Fix**: Resolved foreign key constraint issues for document persistence
+- ✅ **Professional Branding**: Added clickable ValonyLabs website link in footer
 
 ## User Preferences
 ```
