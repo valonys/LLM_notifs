@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
+    "langchain-text-splitters>=0.3.9",
     "langchain>=0.3.27",
     "langchain-community>=0.3.27",
     "langchain-openai>=0.3.28",
@@ -18,7 +19,9 @@ dependencies = [
     "requests>=2.32.4",
     "scikit-learn>=1.7.1",
     "sqlalchemy>=2.0.42",
-    "streamlit>=1.47.1",
+    "streamlit==1.36.0",
+    "cachetools>=5.5.2",
+    "prometheus-client>=0.22.1",
 ]
 
 [[tool.uv.index]]
