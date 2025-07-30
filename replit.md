@@ -12,8 +12,14 @@ DigiTwin is a production-ready Retrieval-Augmented Generation (RAG) system desig
 - ✅ **UI Preservation**: Maintained exact original styling, fonts ("Tw Cen MT"), and interface layout
 - ✅ **FPSO-Focused Analysis**: Added FPSO radio buttons (GIR, DAL, PAZ, CLV) in sidebar for targeted analysis
 - ✅ **Enhanced Pivot Analysis**: Focused on key columns (Main Work Ctr, Notifictn type, Description, Created on, FPSO, Completn date)
+- ✅ **Chat Interface Enhancement**: Chat agents now receive FPSO context and pivot table analysis data
 - ✅ **Database Fix**: Resolved foreign key constraint issues for document persistence
 - ✅ **Professional Branding**: Added clickable ValonyLabs website link in footer
+
+## Future Development Priorities
+- 🚧 **Pivot Table Vector Integration**: Improve chunking of pivot table data into vector_store for better RAG retrieval
+- 🚧 **Robust Multi-Report RAG**: Build comprehensive RAG system around pivot tables and attached reports
+- 🚧 **Enhanced Data Retrieval**: Optimize vector search for structured pivot data and analytical insights
 
 ## User Preferences
 ```
