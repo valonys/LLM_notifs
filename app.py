@@ -709,7 +709,7 @@ st.markdown(
     "<div style='text-align: center; font-size: 14px; font-weight: bold;'>"
     "<span style='color: #1f4e79;'>DigiTwin - Industrial Intelligence System</span> | "
     "<span style='color: #000000;'>Powered by ValonyLabs</span> "
-    "<span style='color: #1f4e79;'>(www.valonylabs.com)</span>"
+    "(<a href='https://www.valonylabs.com' target='_blank' style='color: #1f4e79; text-decoration: none;'>www.valonylabs.com</a>)"
     "</div>", 
     unsafe_allow_html=True
 )
