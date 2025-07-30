@@ -636,15 +636,7 @@ st.header("💬 Industrial Analysis Chat")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Model introduction message
-if not st.session_state.model_intro_done and st.session_state.current_model and st.session_state.current_prompt:
-    intro_message = f"🤖 **{st.session_state.current_model}** is now active for **{st.session_state.current_prompt}**. I'm ready to analyze your industrial data and provide expert insights. How can I assist you today?"
-    
-    with st.chat_message("assistant", avatar=BOT_AVATAR):
-        st.markdown(intro_message)
-    
-    st.session_state.messages.append({"role": "assistant", "content": intro_message})
-    st.session_state.model_intro_done = True
+# Skip automatic model introduction messages - they are redundant
 
 # Display chat messages from history
 for message in st.session_state.messages:
