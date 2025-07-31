@@ -696,7 +696,7 @@ if uploaded_files:
                                 st.write("- 🔍 Cross-referenced pivot analysis data")
                                 st.write("- 📈 Detailed breakdown of top combinations")
                             else:
-                                st.warning("⚠️ No pivot analysis could be created. Check if data contains required columns: 'Notifictn type' and 'Main Work Ctr'")
+                                st.warning("⚠️ No pivot analysis could be created. Check if data contains required columns: 'Notifictn type' and 'Main WorkCtr'")
                 else:
                     st.warning("⚠️ No documents processed from Excel files")
     

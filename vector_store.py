@@ -529,8 +529,8 @@ class VectorStore:
         try:
             df = self.processed_data.copy()
             
-            # Check for required columns
-            required_columns = ['Notifictn type', 'Main Work Ctr']
+            # Check for required columns (using exact column names from data)
+            required_columns = ['Notifictn type', 'Main WorkCtr']
             missing_columns = [col for col in required_columns if col not in df.columns]
             if missing_columns:
                 logger.warning(f"Missing required columns: {missing_columns}. Available: {list(df.columns)}")
@@ -540,9 +540,9 @@ class VectorStore:
             df_clean = df.dropna(subset=required_columns, how='any')  # Drop if either is empty
             df_clean = df_clean[
                 (df_clean['Notifictn type'].astype(str).str.strip() != '') & 
-                (df_clean['Main Work Ctr'].astype(str).str.strip() != '') &
+                (df_clean['Main WorkCtr'].astype(str).str.strip() != '') &
                 (df_clean['Notifictn type'].astype(str).str.strip() != 'nan') &
-                (df_clean['Main Work Ctr'].astype(str).str.strip() != 'nan')
+                (df_clean['Main WorkCtr'].astype(str).str.strip() != 'nan')
             ]
             
             logger.info(f"Cleaned data: {len(df)} -> {len(df_clean)} rows (removed empty entries)")
@@ -564,7 +564,7 @@ class VectorStore:
             try:
                 pivot_table = pd.crosstab(
                     df_clean['Notifictn type'], 
-                    df_clean['Main Work Ctr'], 
+                    df_clean['Main WorkCtr'], 
                     margins=True, 
                     margins_name="Total"
                 )
