@@ -519,112 +519,83 @@ class VectorStore:
     
     def create_notification_pivot_tables(self, date_range=None, fpso_filter=None):
         """
-        Create pivot tables for notification data with database persistence
-        Target columns: Main Work Ctr, Notifictn type, Description, Created on, FPSO, Completn date
+        Create simplified pivot table: Notification Type vs Main Work Center, filtered by FPSO
+        Drop empty rows and focus on core operational data
         """
         if self.processed_data is None:
+            logger.warning("No processed data available for pivot table creation")
             return None
         
         try:
             df = self.processed_data.copy()
             
-            # Filter by FPSO if specified
-            if fpso_filter and fpso_filter != "All FPSOs" and 'FPSO' in df.columns:
-                df = df[df['FPSO'] == fpso_filter]
-                logger.info(f"Filtered data for FPSO: {fpso_filter}, Rows: {len(df)}")
-            
-            # Filter by date range if specified
-            if date_range and 'Created on' in df.columns:
-                df = self.pivot_manager.filter_data_by_date_range(
-                    df, 'Created on', date_range.get('start'), date_range.get('end')
-                )
-            
-            # Define target columns for notifications (key columns as requested)
-            target_columns = ['Main Work Ctr', 'Notifictn type', 'Description', 'Created on', 'FPSO', 'Completn date']
-            available_columns = [col for col in target_columns if col in df.columns]
-            
-            if not available_columns:
-                logger.warning("No target columns found in DataFrame")
+            # Check for required columns
+            required_columns = ['Notifictn type', 'Main Work Ctr']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                logger.warning(f"Missing required columns: {missing_columns}. Available: {list(df.columns)}")
                 return None
             
-            pivot_tables = {}
+            # Remove rows where key columns are empty
+            df_clean = df.dropna(subset=required_columns, how='any')  # Drop if either is empty
+            df_clean = df_clean[
+                (df_clean['Notifictn type'].astype(str).str.strip() != '') & 
+                (df_clean['Main Work Ctr'].astype(str).str.strip() != '') &
+                (df_clean['Notifictn type'].astype(str).str.strip() != 'nan') &
+                (df_clean['Main Work Ctr'].astype(str).str.strip() != 'nan')
+            ]
             
-            # 1. Notifications by Type
-            if 'Notifictn type' in available_columns:
-                notif_pivot = self.pivot_manager.create_pivot_table(
-                    df, ['Notifictn type'], aggfunc='count', file_name=self.current_file_name
+            logger.info(f"Cleaned data: {len(df)} -> {len(df_clean)} rows (removed empty entries)")
+            
+            # Apply FPSO filter if specified
+            if fpso_filter and fpso_filter != "All FPSOs":
+                if 'FPSO' in df_clean.columns:
+                    original_count = len(df_clean)
+                    df_clean = df_clean[df_clean['FPSO'].str.contains(fpso_filter, case=False, na=False)]
+                    logger.info(f"FPSO filter applied: {original_count} -> {len(df_clean)} rows for {fpso_filter}")
+                else:
+                    logger.warning("FPSO column not found - cannot apply FPSO filter")
+            
+            if len(df_clean) == 0:
+                logger.warning("No data remaining after cleaning and filtering")
+                return None
+            
+            # Create single pivot table: Notification Type vs Work Center
+            try:
+                pivot_table = pd.crosstab(
+                    df_clean['Notifictn type'], 
+                    df_clean['Main Work Ctr'], 
+                    margins=True, 
+                    margins_name="Total"
                 )
-                if notif_pivot is not None:
-                    pivot_tables['Notifications by Type'] = notif_pivot
-            
-            # 2. Notifications by Work Center (Main Work Ctr)
-            if 'Main Work Ctr' in available_columns:
-                workctr_pivot = self.pivot_manager.create_pivot_table(
-                    df, ['Main Work Ctr'], aggfunc='count', file_name=self.current_file_name
-                )
-                if workctr_pivot is not None:
-                    pivot_tables['Notifications by Work Center'] = workctr_pivot
-            
-            # 3. Notifications by FPSO
-            if 'FPSO' in available_columns:
-                fpso_pivot = self.pivot_manager.create_pivot_table(
-                    df, ['FPSO'], aggfunc='count', file_name=self.current_file_name
-                )
-                if fpso_pivot is not None:
-                    pivot_tables['Notifications by FPSO'] = fpso_pivot
-            
-            # 4. Cross-analysis: Type vs Work Center
-            if 'Notifictn type' in available_columns and 'Main Work Ctr' in available_columns:
-                cross_pivot = self.pivot_manager.create_pivot_table(
-                    df, ['Notifictn type', 'Main Work Ctr'], aggfunc='count', file_name=self.current_file_name
-                )
-                if cross_pivot is not None:
-                    pivot_tables['Type vs Work Center'] = cross_pivot
-            
-            # 5. FPSO vs Work Center Analysis
-            if 'FPSO' in available_columns and 'Main Work Ctr' in available_columns:
-                fpso_workctr_pivot = self.pivot_manager.create_pivot_table(
-                    df, ['FPSO', 'Main Work Ctr'], aggfunc='count', file_name=self.current_file_name
-                )
-                if fpso_workctr_pivot is not None:
-                    pivot_tables['FPSO vs Work Center'] = fpso_workctr_pivot
-            
-            # 6. Monthly trends if date column exists
-            if 'Created on' in available_columns:
-                try:
-                    df_copy = df.copy()
-                    df_copy['Created on'] = pd.to_datetime(df_copy['Created on'], errors='coerce')
-                    df_copy['Month'] = df_copy['Created on'].dt.to_period('M').astype(str)
-                    
-                    monthly_pivot = self.pivot_manager.create_pivot_table(
-                        df_copy, ['Month'], aggfunc='count', file_name=self.current_file_name
-                    )
-                    if monthly_pivot is not None:
-                        pivot_tables['Monthly Trends'] = monthly_pivot
-                except Exception as e:
-                    logger.warning(f"Could not create monthly trends: {str(e)}")
-            
-            # 7. Completion Analysis (if completion date exists)
-            if 'Completn date' in available_columns:
-                try:
-                    df_copy = df.copy()
-                    df_copy['Is_Completed'] = df_copy['Completn date'].notna()
-                    
-                    completion_pivot = self.pivot_manager.create_pivot_table(
-                        df_copy, ['Is_Completed'], aggfunc='count', file_name=self.current_file_name
-                    )
-                    if completion_pivot is not None:
-                        pivot_tables['Completion Status'] = completion_pivot
-                except Exception as e:
-                    logger.warning(f"Could not create completion analysis: {str(e)}")
-            
-            # 8. Convert pivot tables to vector store documents for RAG
-            self._convert_pivot_tables_to_documents(pivot_tables, fpso_filter)
-            
-            return pivot_tables
+                
+                logger.info(f"Created pivot table: {len(pivot_table)-1} notification types × {len(pivot_table.columns)-1} work centers")
+                
+                # Package results
+                result = {
+                    'pivot_table': pivot_table,
+                    'fpso_filter': fpso_filter or "All FPSOs",
+                    'total_records': len(df_clean),
+                    'notification_types_count': len(pivot_table.index) - 1,  # Exclude Total row
+                    'work_centers_count': len(pivot_table.columns) - 1,  # Exclude Total column
+                    'summary_stats': {
+                        'top_notification_type': pivot_table.iloc[:-1, -1].idxmax(),  # Exclude Total row/col
+                        'top_work_center': pivot_table.iloc[-1, :-1].idxmax(),
+                        'total_notifications': pivot_table.iloc[-1, -1]  # Grand total
+                    }
+                }
+                
+                # Convert to documents for RAG integration
+                self._convert_simplified_pivot_to_documents(result, fpso_filter)
+                
+                return result
+                
+            except Exception as e:
+                logger.error(f"Error creating pivot table: {str(e)}")
+                return None
             
         except Exception as e:
-            logger.error(f"Error creating notification pivot tables: {str(e)}")
+            logger.error(f"Error in create_notification_pivot_tables: {str(e)}")
             return None
     
     def _convert_pivot_tables_to_documents(self, pivot_tables, fpso_filter=None):
@@ -832,6 +803,125 @@ class VectorStore:
             logger.error(f"Error generating insights: {str(e)}")
         
         return insights
+    
+    def _convert_simplified_pivot_to_documents(self, result, fpso_filter=None):
+        """Convert simplified pivot table result to searchable documents for RAG"""
+        try:
+            pivot_documents = []
+            pivot_table = result['pivot_table']
+            
+            if pivot_table is None or len(pivot_table) == 0:
+                return
+            
+            # Create main summary document
+            summary_text = self._create_simplified_pivot_summary(result, fpso_filter)
+            
+            metadata = {
+                "source": f"pivot_analysis_{self.current_file_name}",
+                "type": "simplified_pivot",
+                "fpso_focus": fpso_filter or "All FPSOs",
+                "notification_types": result.get('notification_types_count', 0),
+                "work_centers": result.get('work_centers_count', 0),
+                "total_records": result.get('total_records', 0),
+                "generated_on": datetime.now().isoformat()
+            }
+            
+            doc = LCDocument(page_content=summary_text, metadata=metadata)
+            pivot_documents.append(doc)
+            
+            # Create detailed breakdown documents for top performers
+            top_combinations = self._get_top_combinations(pivot_table)
+            if top_combinations:
+                detail_text = f"TOP PERFORMING COMBINATIONS - {fpso_filter or 'All FPSOs'}\n"
+                detail_text += "=" * 50 + "\n\n"
+                
+                for i, (notif_type, work_center, count) in enumerate(top_combinations[:10], 1):
+                    detail_text += f"{i}. {notif_type} at {work_center}: {count} notifications\n"
+                
+                detail_doc = LCDocument(
+                    page_content=detail_text,
+                    metadata={**metadata, "type": "pivot_details"}
+                )
+                pivot_documents.append(detail_doc)
+            
+            # Add to vector store system
+            if pivot_documents:
+                self.all_documents.extend(pivot_documents)
+                self.create_enhanced_vector_store()
+                self._save_documents_to_db(pivot_documents, f"pivot_simplified_{self.current_file_name}")
+                logger.info(f"Integrated {len(pivot_documents)} simplified pivot documents into RAG system")
+            
+        except Exception as e:
+            logger.error(f"Error converting simplified pivot to documents: {str(e)}")
+    
+    def _create_simplified_pivot_summary(self, result, fpso_filter):
+        """Create comprehensive text summary of simplified pivot analysis"""
+        try:
+            pivot_table = result['pivot_table']
+            stats = result['summary_stats']
+            
+            text_parts = []
+            focus_text = f" for {fpso_filter}" if fpso_filter and fpso_filter != "All FPSOs" else ""
+            text_parts.append(f"SIMPLIFIED PIVOT ANALYSIS: Notification Types vs Work Centers{focus_text}")
+            text_parts.append("=" * 60)
+            
+            # Key statistics
+            text_parts.append(f"Total notifications analyzed: {stats['total_notifications']}")
+            text_parts.append(f"Notification types covered: {result['notification_types_count']}")
+            text_parts.append(f"Work centers involved: {result['work_centers_count']}")
+            text_parts.append(f"Data records processed: {result['total_records']}")
+            
+            # Top performers
+            text_parts.append(f"\nTop notification type: {stats['top_notification_type']}")
+            text_parts.append(f"Busiest work center: {stats['top_work_center']}")
+            
+            # Pivot table sample (top 5x5)
+            text_parts.append("\nPIVOT TABLE SAMPLE (Top 5x5):")
+            text_parts.append("-" * 40)
+            
+            # Get top 5 notification types and work centers by total
+            top_notif_types = pivot_table.iloc[:-1, -1].nlargest(5).index  # Exclude Total row
+            top_work_centers = pivot_table.iloc[-1, :-1].nlargest(5).index  # Exclude Total col
+            
+            # Create sample table
+            sample_table = pivot_table.loc[top_notif_types, top_work_centers]
+            text_parts.append(sample_table.to_string())
+            
+            # Key insights
+            text_parts.append("\nKEY INSIGHTS:")
+            if fpso_filter and fpso_filter != "All FPSOs":
+                text_parts.append(f"- Analysis focused specifically on {fpso_filter} operations")
+            text_parts.append(f"- Highest concentration: {stats['top_notification_type']} notifications")
+            text_parts.append(f"- Most active area: {stats['top_work_center']} work center")
+            
+            return "\n".join(text_parts)
+            
+        except Exception as e:
+            logger.error(f"Error creating simplified pivot summary: {str(e)}")
+            return f"Simplified Pivot Analysis - Error in summary generation: {str(e)}"
+    
+    def _get_top_combinations(self, pivot_table, top_n=10):
+        """Get top notification type + work center combinations"""
+        try:
+            combinations = []
+            
+            # Exclude Total row and column
+            data_section = pivot_table.iloc[:-1, :-1]
+            
+            for notif_type in data_section.index:
+                for work_center in data_section.columns:
+                    count = data_section.loc[notif_type, work_center]
+                    if count > 0:  # Only include non-zero combinations
+                        combinations.append((notif_type, work_center, count))
+            
+            # Sort by count descending
+            combinations.sort(key=lambda x: x[2], reverse=True)
+            
+            return combinations[:top_n]
+            
+        except Exception as e:
+            logger.error(f"Error getting top combinations: {str(e)}")
+            return []
     
     def create_enhanced_vector_store(self):
         """Create or update vector store with all documents (data + pivot analysis)"""

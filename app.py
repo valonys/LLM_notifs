@@ -659,40 +659,44 @@ if uploaded_files:
                             fpso_filter = st.session_state.get('selected_fpso', 'All FPSOs')
                             pivot_results = vector_store.create_notification_pivot_tables(fpso_filter=fpso_filter)
                             if pivot_results:
-                                st.success("✅ Pivot tables created and cached")
+                                st.success(f"✅ **Simplified Pivot Analysis Complete** ({fpso_filter})")
                                 
-                                # Store pivot summary in session state for RAG context
-                                pivot_summary = []
-                                for table_name, data in pivot_results.items():
-                                    if isinstance(data, dict) and 'summary' in data:
-                                        pivot_summary.append(f"{table_name}: {data['summary']}")
-                                    else:
-                                        pivot_summary.append(f"{table_name}: {str(data)[:100]}...")
+                                # Display main results
+                                pivot_table = pivot_results.get('pivot_table')
+                                if pivot_table is not None:
+                                    st.subheader(f"📊 Notification Types vs Work Centers")
+                                    
+                                    # Show summary stats first
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.metric("Total Notifications", pivot_results.get('total_records', 0))
+                                    with col2:
+                                        st.metric("Notification Types", pivot_results.get('notification_types_count', 0))
+                                    with col3:
+                                        st.metric("Work Centers", pivot_results.get('work_centers_count', 0))
+                                    
+                                    # Display the pivot table
+                                    st.dataframe(pivot_table, use_container_width=True)
+                                    
+                                    # Show key insights
+                                    stats = pivot_results.get('summary_stats', {})
+                                    if stats:
+                                        st.subheader("🔍 Key Insights")
+                                        st.write(f"**Top Notification Type:** {stats.get('top_notification_type', 'N/A')}")
+                                        st.write(f"**Busiest Work Center:** {stats.get('top_work_center', 'N/A')}")
+                                        st.write(f"**Grand Total:** {stats.get('total_notifications', 0)} notifications")
                                 
-                                st.session_state.pivot_summary = "\n".join(pivot_summary)
+                                # Store for session state
                                 st.session_state.pivot_results = pivot_results
                                 
-                                # Display some results with FPSO context
-                                fpso_filter = st.session_state.get('selected_fpso', 'All FPSOs')
-                                st.success(f"✅ Pivot analysis completed for: **{fpso_filter}**")
-                                
-                                with st.expander("📊 View Pivot Results"):
-                                    st.write(f"**Analysis Focus**: {fpso_filter}")
-                                    for table_name, data in list(pivot_results.items())[:3]:
-                                        st.subheader(f"📈 {table_name}")
-                                        if isinstance(data, dict) and 'data' in data:
-                                            st.json(data['data'])
-                                        else:
-                                            st.write(data)
-                                
-                                # Add context message for chat interface
-                                st.info(f"🧠 **Enhanced RAG Ready**: Ask questions about the {fpso_filter} analysis. The agents now have integrated access to:")
-                                st.write("- 📊 Pivot table insights and patterns")
-                                st.write("- 📈 Cross-referenced analytical data")
-                                st.write("- 🔍 Multi-report context searching")
+                                # Enhanced RAG ready message
+                                st.info(f"🧠 **Enhanced RAG Ready**: Ask questions about {fpso_filter} analysis. The chat agents now understand:")
+                                st.write("- 📊 Notification type patterns by work center")
                                 st.write("- 🏗️ FPSO-specific operational insights")
+                                st.write("- 🔍 Cross-referenced pivot analysis data")
+                                st.write("- 📈 Detailed breakdown of top combinations")
                             else:
-                                st.warning("⚠️ No pivot tables created")
+                                st.warning("⚠️ No pivot analysis could be created. Check if data contains required columns: 'Notifictn type' and 'Main Work Ctr'")
                 else:
                     st.warning("⚠️ No documents processed from Excel files")
     
