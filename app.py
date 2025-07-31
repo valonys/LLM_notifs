@@ -294,8 +294,29 @@ def generate_response(prompt):
     
     messages = [{"role": "system", "content": PROMPTS[st.session_state.current_prompt]}]
     
-    # Enhanced RAG Context
-    if st.session_state.vectorstore:
+    # Enhanced Multi-Report RAG Context
+    fpso_filter = st.session_state.get('selected_fpso', 'All FPSOs')
+    
+    # Try enhanced vector store first, then fallback to session vectorstore
+    if vector_store and hasattr(vector_store, 'get_comprehensive_context'):
+        try:
+            comprehensive_context = vector_store.get_comprehensive_context(prompt, fpso_filter)
+            if comprehensive_context and comprehensive_context != "Context retrieval failed":
+                messages.append({"role": "system", "content": f"Comprehensive Context:\n{comprehensive_context}"})
+            else:
+                # Fallback to basic vector search
+                raise Exception("Comprehensive context failed")
+        except Exception as e:
+            logger.warning(f"Enhanced RAG failed: {str(e)}. Using basic vector search.")
+            if st.session_state.vectorstore:
+                try:
+                    docs = st.session_state.vectorstore.similarity_search(prompt, k=5)
+                    context = "\n\n".join([f"Source: {doc.metadata.get('source', 'Unknown')}\n{doc.page_content}" 
+                                         for doc in docs])
+                    messages.append({"role": "system", "content": f"Relevant Context:\n{context}"})
+                except Exception as e:
+                    logger.warning(f"Basic vectorstore search failed: {str(e)}")
+    elif st.session_state.vectorstore:
         try:
             docs = st.session_state.vectorstore.similarity_search(prompt, k=5)
             context = "\n\n".join([f"Source: {doc.metadata.get('source', 'Unknown')}\n{doc.page_content}" 
@@ -632,8 +653,8 @@ if uploaded_files:
                     st.session_state.last_processed = f"{len(uploaded_files)} Excel files"
                     
                     # Show pivot table creation option
-                    if st.button("🔄 Create Notification Pivot Tables"):
-                        with st.spinner("Creating pivot tables..."):
+                    if st.button("🔄 Create Enhanced Pivot Analysis"):
+                        with st.spinner("Creating enhanced pivot tables and vector integration..."):
                             # Get current FPSO selection from session state
                             fpso_filter = st.session_state.get('selected_fpso', 'All FPSOs')
                             pivot_results = vector_store.create_notification_pivot_tables(fpso_filter=fpso_filter)
@@ -665,7 +686,11 @@ if uploaded_files:
                                             st.write(data)
                                 
                                 # Add context message for chat interface
-                                st.info(f"💬 **Chat Ready**: Ask questions about the {fpso_filter} analysis. The agents now have access to your pivot data.")
+                                st.info(f"🧠 **Enhanced RAG Ready**: Ask questions about the {fpso_filter} analysis. The agents now have integrated access to:")
+                                st.write("- 📊 Pivot table insights and patterns")
+                                st.write("- 📈 Cross-referenced analytical data")
+                                st.write("- 🔍 Multi-report context searching")
+                                st.write("- 🏗️ FPSO-specific operational insights")
                             else:
                                 st.warning("⚠️ No pivot tables created")
                 else:

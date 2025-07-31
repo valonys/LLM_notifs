@@ -349,6 +349,8 @@ class VectorStore:
         self.processed_data = None
         self.original_df = None
         self.current_file_name = None
+        self.vector_store = None  # FAISS or other vector store
+        self.all_documents = []  # Keep track of all documents for multi-report RAG
     
     def process_excel_to_documents(self, uploaded_files, target_columns=None):
         """
@@ -423,8 +425,14 @@ class VectorStore:
                     # Store processed data for pivot operations
                     self.processed_data = df
                     
+                    # Add documents to all_documents for vector store
+                    self.all_documents.extend(documents)
+                    
                     # Save documents to database for persistence
                     self._save_documents_to_db(documents, file_name)
+                    
+                    # Create/update enhanced vector store
+                    self.create_enhanced_vector_store()
                     
             except Exception as e:
                 try:
@@ -610,11 +618,348 @@ class VectorStore:
                 except Exception as e:
                     logger.warning(f"Could not create completion analysis: {str(e)}")
             
+            # 8. Convert pivot tables to vector store documents for RAG
+            self._convert_pivot_tables_to_documents(pivot_tables, fpso_filter)
+            
             return pivot_tables
             
         except Exception as e:
             logger.error(f"Error creating notification pivot tables: {str(e)}")
             return None
+    
+    def _convert_pivot_tables_to_documents(self, pivot_tables, fpso_filter=None):
+        """Convert pivot table results into searchable documents for vector store"""
+        try:
+            pivot_documents = []
+            
+            for table_name, pivot_data in pivot_tables.items():
+                if pivot_data is None or len(pivot_data) == 0:
+                    continue
+                
+                # Create a comprehensive text summary of the pivot table
+                summary_text = self._create_pivot_summary_text(table_name, pivot_data, fpso_filter)
+                
+                # Create metadata for the document
+                metadata = {
+                    "source": f"pivot_analysis_{self.current_file_name}",
+                    "type": "pivot_table",
+                    "analysis_name": table_name,
+                    "fpso_focus": fpso_filter or "All FPSOs",
+                    "data_points": len(pivot_data),
+                    "generated_on": datetime.now().isoformat()
+                }
+                
+                # Create LangChain document
+                doc = LCDocument(
+                    page_content=summary_text,
+                    metadata=metadata
+                )
+                pivot_documents.append(doc)
+                
+                # Create detailed breakdowns for larger pivot tables
+                if len(pivot_data) > 10:
+                    detail_docs = self._create_detailed_pivot_documents(table_name, pivot_data, fpso_filter)
+                    pivot_documents.extend(detail_docs)
+            
+            # Store pivot documents in vector store if available
+            if pivot_documents and hasattr(self, 'vector_store') and self.vector_store:
+                try:
+                    # Add to existing vector store
+                    self.vector_store.add_documents(pivot_documents)
+                    logger.info(f"Added {len(pivot_documents)} pivot analysis documents to vector store")
+                except Exception as e:
+                    logger.warning(f"Could not add pivot documents to vector store: {str(e)}")
+            
+            # Add pivot documents to all_documents for integrated RAG
+            if pivot_documents:
+                self.all_documents.extend(pivot_documents)
+                
+                # Update/create vector store with new pivot documents
+                self.create_enhanced_vector_store()
+                
+                # Save pivot documents to database for persistence
+                self._save_documents_to_db(pivot_documents, f"pivot_analysis_{self.current_file_name}")
+                
+                logger.info(f"Successfully integrated {len(pivot_documents)} pivot analysis documents into RAG system")
+            
+        except Exception as e:
+            logger.error(f"Error converting pivot tables to documents: {str(e)}")
+    
+    def _create_pivot_summary_text(self, table_name, pivot_data, fpso_filter):
+        """Create a comprehensive text summary of pivot table data"""
+        try:
+            text_parts = []
+            
+            # Header
+            focus_text = f" for {fpso_filter}" if fpso_filter and fpso_filter != "All FPSOs" else ""
+            text_parts.append(f"PIVOT ANALYSIS: {table_name}{focus_text}")
+            text_parts.append("=" * 50)
+            
+            # Convert pivot data to DataFrame if it's not already
+            if isinstance(pivot_data, dict):
+                df = pd.DataFrame(pivot_data)
+            else:
+                df = pivot_data
+            
+            # Summary statistics
+            text_parts.append(f"Total entries: {len(df)}")
+            
+            # Top entries analysis
+            if not df.empty:
+                # For series data (single column)
+                if isinstance(df, pd.Series) or len(df.columns) == 1:
+                    series_data = df if isinstance(df, pd.Series) else df.iloc[:, 0]
+                    total = series_data.sum() if series_data.dtype in ['int64', 'float64'] else len(series_data)
+                    text_parts.append(f"Total count: {total}")
+                    
+                    # Top 5 entries
+                    top_entries = series_data.nlargest(5) if series_data.dtype in ['int64', 'float64'] else series_data.head(5)
+                    text_parts.append("\nTop entries:")
+                    for idx, value in top_entries.items():
+                        percentage = (value / total * 100) if total > 0 else 0
+                        text_parts.append(f"- {idx}: {value} ({percentage:.1f}%)")
+                
+                # For multi-column data
+                else:
+                    text_parts.append(f"Columns: {', '.join(df.columns)}")
+                    # Sample of the data
+                    text_parts.append("\nSample data:")
+                    for i, (idx, row) in enumerate(df.head(5).iterrows()):
+                        row_text = f"- {idx}: " + ", ".join([f"{col}={val}" for col, val in row.items()])
+                        text_parts.append(row_text)
+            
+            # Insights and patterns
+            insights = self._generate_pivot_insights(table_name, df, fpso_filter)
+            if insights:
+                text_parts.append("\nKey Insights:")
+                text_parts.extend([f"- {insight}" for insight in insights])
+            
+            return "\n".join(text_parts)
+            
+        except Exception as e:
+            logger.error(f"Error creating pivot summary text: {str(e)}")
+            return f"Pivot Analysis: {table_name} - Error in summary generation"
+    
+    def _create_detailed_pivot_documents(self, table_name, pivot_data, fpso_filter):
+        """Create detailed documents for large pivot tables"""
+        detail_docs = []
+        
+        try:
+            if isinstance(pivot_data, dict):
+                df = pd.DataFrame(pivot_data)
+            else:
+                df = pivot_data
+            
+            # Split large tables into chunks
+            chunk_size = 20
+            for i in range(0, len(df), chunk_size):
+                chunk_df = df.iloc[i:i+chunk_size]
+                
+                # Create detailed text for this chunk
+                chunk_text = f"DETAILED DATA - {table_name} (Part {i//chunk_size + 1})\n"
+                chunk_text += f"FPSO Focus: {fpso_filter or 'All FPSOs'}\n\n"
+                
+                # Add detailed entries
+                for idx, row in chunk_df.iterrows():
+                    if isinstance(row, pd.Series):
+                        chunk_text += f"{idx}: {row.iloc[0] if len(row) > 0 else 'N/A'}\n"
+                    else:
+                        row_details = ", ".join([f"{col}={val}" for col, val in row.items()])
+                        chunk_text += f"{idx}: {row_details}\n"
+                
+                # Create document
+                metadata = {
+                    "source": f"pivot_detail_{self.current_file_name}",
+                    "type": "pivot_detail",
+                    "analysis_name": table_name,
+                    "fpso_focus": fpso_filter or "All FPSOs",
+                    "chunk_number": i//chunk_size + 1,
+                    "data_points": len(chunk_df)
+                }
+                
+                doc = LCDocument(page_content=chunk_text, metadata=metadata)
+                detail_docs.append(doc)
+        
+        except Exception as e:
+            logger.error(f"Error creating detailed pivot documents: {str(e)}")
+        
+        return detail_docs
+    
+    def _generate_pivot_insights(self, table_name, df, fpso_filter):
+        """Generate intelligent insights from pivot data"""
+        insights = []
+        
+        try:
+            if df.empty:
+                return insights
+            
+            # Insights based on table type and data patterns
+            if "FPSO" in table_name:
+                if isinstance(df, pd.Series):
+                    top_fpso = df.idxmax()
+                    insights.append(f"Highest activity in {top_fpso} with {df.max()} notifications")
+                    if len(df) > 1:
+                        total = df.sum()
+                        insights.append(f"Distribution across {len(df)} FPSOs, total: {total}")
+            
+            elif "Work Center" in table_name:
+                if isinstance(df, pd.Series):
+                    top_workctr = df.idxmax()
+                    insights.append(f"Most active work center: {top_workctr} ({df.max()} notifications)")
+                    if fpso_filter and fpso_filter != "All FPSOs":
+                        insights.append(f"Work center analysis specific to {fpso_filter} operations")
+            
+            elif "Type" in table_name:
+                if isinstance(df, pd.Series):
+                    top_type = df.idxmax()
+                    insights.append(f"Most common notification type: {top_type} ({df.max()} occurrences)")
+                    
+            elif "Monthly" in table_name:
+                if isinstance(df, pd.Series) and len(df) > 1:
+                    recent_months = df.tail(3)
+                    avg_recent = recent_months.mean()
+                    insights.append(f"Recent 3-month average: {avg_recent:.1f} notifications per month")
+            
+            elif "Completion" in table_name:
+                if isinstance(df, pd.Series):
+                    if True in df.index:
+                        completed = df.get(True, 0)
+                        total = df.sum()
+                        completion_rate = (completed / total * 100) if total > 0 else 0
+                        insights.append(f"Completion rate: {completion_rate:.1f}% ({completed} of {total})")
+            
+        except Exception as e:
+            logger.error(f"Error generating insights: {str(e)}")
+        
+        return insights
+    
+    def create_enhanced_vector_store(self):
+        """Create or update vector store with all documents (data + pivot analysis)"""
+        try:
+            if not self.all_documents:
+                logger.warning("No documents available for vector store creation")
+                return None
+            
+            # Create or update FAISS vector store
+            if self.vector_store is None:
+                try:
+                    self.vector_store = FAISS.from_documents(self.all_documents, self.embeddings)
+                    logger.info(f"Created new vector store with {len(self.all_documents)} documents")
+                except Exception as e:
+                    logger.warning(f"FAISS creation failed: {str(e)}. Using simple text store.")
+                    self.vector_store = SimpleTextStore(self.all_documents)
+            else:
+                # Add new documents to existing vector store
+                try:
+                    # Get only new documents that aren't already in vector store
+                    new_docs = [doc for doc in self.all_documents if not hasattr(doc, '_in_vector_store')]
+                    if new_docs:
+                        self.vector_store.add_documents(new_docs)
+                        # Mark documents as added
+                        for doc in new_docs:
+                            doc._in_vector_store = True
+                        logger.info(f"Added {len(new_docs)} new documents to vector store")
+                except Exception as e:
+                    logger.warning(f"Could not add new documents to vector store: {str(e)}")
+            
+            return self.vector_store
+            
+        except Exception as e:
+            logger.error(f"Error creating enhanced vector store: {str(e)}")
+            return None
+    
+    def query_multi_report_rag(self, query, fpso_filter=None, k=5):
+        """Enhanced RAG query that searches across all data sources and pivot analysis"""
+        try:
+            if not self.vector_store:
+                logger.warning("No vector store available for querying")
+                return []
+            
+            # Perform similarity search
+            try:
+                if hasattr(self.vector_store, 'similarity_search'):
+                    docs = self.vector_store.similarity_search(query, k=k*2)  # Get more docs for filtering
+                else:
+                    docs = self.vector_store.similarity_search(query, k)
+            except Exception as e:
+                logger.warning(f"Vector search failed: {str(e)}")
+                return []
+            
+            # Filter results based on FPSO if specified
+            if fpso_filter and fpso_filter != "All FPSOs":
+                filtered_docs = []
+                for doc in docs:
+                    # Check if document is relevant to the selected FPSO
+                    if (fpso_filter.lower() in doc.page_content.lower() or 
+                        doc.metadata.get('fpso_focus') == fpso_filter or
+                        doc.metadata.get('fpso_focus') == "All FPSOs"):
+                        filtered_docs.append(doc)
+                docs = filtered_docs[:k]
+            else:
+                docs = docs[:k]
+            
+            # Enhance results with metadata context
+            enhanced_results = []
+            for doc in docs:
+                # Add context about document type and source
+                content = doc.page_content
+                metadata = doc.metadata
+                
+                context_prefix = ""
+                if metadata.get('type') == 'pivot_table':
+                    context_prefix = f"[PIVOT ANALYSIS - {metadata.get('analysis_name', 'Unknown')}] "
+                elif metadata.get('type') == 'pivot_detail':
+                    context_prefix = f"[DETAILED DATA - {metadata.get('analysis_name', 'Unknown')}] "
+                elif metadata.get('source', '').endswith('.xlsx'):
+                    context_prefix = "[EXCEL DATA] "
+                elif metadata.get('source', '').endswith('.pdf'):
+                    context_prefix = "[PDF DOCUMENT] "
+                
+                enhanced_content = context_prefix + content
+                enhanced_doc = LCDocument(page_content=enhanced_content, metadata=metadata)
+                enhanced_results.append(enhanced_doc)
+            
+            logger.info(f"Multi-report RAG query returned {len(enhanced_results)} relevant documents")
+            return enhanced_results
+            
+        except Exception as e:
+            logger.error(f"Error in multi-report RAG query: {str(e)}")
+            return []
+    
+    def get_comprehensive_context(self, query, fpso_filter=None):
+        """Get comprehensive context combining RAG results with current analysis state"""
+        try:
+            context_parts = []
+            
+            # Get RAG results
+            rag_docs = self.query_multi_report_rag(query, fpso_filter, k=5)
+            if rag_docs:
+                context_parts.append("=== RELEVANT DATA AND ANALYSIS ===")
+                for i, doc in enumerate(rag_docs[:3], 1):
+                    source_info = doc.metadata.get('source', 'Unknown')
+                    context_parts.append(f"\nSource {i} ({source_info}):")
+                    context_parts.append(doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content)
+            
+            # Add current FPSO context
+            if fpso_filter and fpso_filter != "All FPSOs":
+                context_parts.append(f"\n=== CURRENT ANALYSIS FOCUS ===")
+                context_parts.append(f"FPSO: {fpso_filter}")
+                context_parts.append("Analysis is specifically focused on this FPSO's operations.")
+            
+            # Add data summary if available
+            if self.processed_data is not None:
+                summary = self.get_notification_summary()
+                if summary:
+                    context_parts.append("\n=== DATA OVERVIEW ===")
+                    context_parts.append(f"Total notifications: {summary.get('total_notifications', 'Unknown')}")
+                    if summary.get('fpso_distribution'):
+                        context_parts.append(f"FPSO distribution: {summary['fpso_distribution']}")
+            
+            return "\n".join(context_parts)
+            
+        except Exception as e:
+            logger.error(f"Error getting comprehensive context: {str(e)}")
+            return "Context retrieval failed"
     
     def get_notification_summary(self):
         """Get comprehensive summary of notification data"""
