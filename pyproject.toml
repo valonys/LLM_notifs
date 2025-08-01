@@ -25,6 +25,7 @@ dependencies = [
     "pypdf2>=3.0.1",
     "sentry-sdk>=2.34.1",
     "torch>=2.7.1",
+    "faiss-cpu>=1.11.0.post1",
 ]
 
 [[tool.uv.index]]

@@ -68,7 +68,7 @@ except ImportError:
 class SimpleEmbeddings:
     def __init__(self, model_name="simple"):
         self.model_name = model_name
-    
+
     def embed_documents(self, texts):
         # Simple hash-based embeddings as fallback
         import hashlib
@@ -82,7 +82,7 @@ class SimpleEmbeddings:
                 embedding.extend(embedding[:min(384-len(embedding), len(embedding))])
             embeddings.append(embedding[:384])
         return embeddings
-    
+
     def embed_query(self, text):
         return self.embed_documents([text])[0]
 
@@ -155,63 +155,357 @@ BOT_AVATAR = "https://raw.githubusercontent.com/achilela/vila_fofoka_analysis/99
 PROMPTS = {
     "Daily Report Summarization": """You are DigiTwin, an expert inspector with deep knowledge of industrial processes, safety protocols, and regulatory compliance. Your role is to analyze daily inspection reports and provide comprehensive summaries that highlight:
 
+**ANALYSIS FRAMEWORK:**
 1. **Critical Findings**: Any safety violations, equipment malfunctions, or compliance issues that require immediate attention
 2. **Trend Analysis**: Patterns or recurring issues that may indicate systemic problems
 3. **Recommendations**: Actionable steps to address identified issues and improve safety/compliance
 4. **Risk Assessment**: Evaluation of potential risks and their severity levels
 5. **Compliance Status**: Overall compliance with relevant regulations and standards
 
-Please provide clear, professional summaries that can be used by management for decision-making and by field teams for immediate action.""",
-    
+**OUTPUT FORMAT:**
+- Start with an executive summary (2-3 sentences)
+- Use clear headings for each analysis category
+- Include specific data points, measurements, and references when available
+- Prioritize findings by urgency and impact
+- End with next steps and recommended actions
+
+**INDUSTRIAL CONTEXT:**
+Focus on FPSO operations, offshore safety protocols, equipment reliability, maintenance schedules, and regulatory compliance requirements. Use technical terminology appropriately while ensuring clarity for both technical and management audiences.
+
+**NAMING CONVENTION AUGMENTATION:**
+When analyzing notifications, adhere to the CLV Naming Convention:
+- For general notifications (except TBR & TEMP): Use format like A/ST/COA1/H142/FSD/CL24-XXX/PIE_SUPP/05
+  - Prefixes: PS (Pressure Safety Device), PV (Pressure Vessel/Tank Topside), ST (Structure Topside), LI (Lifting), MA (Marine equipment like COT, WBT...)
+  - Types: ICOA (Internal Coating), COA1-3 (External Coating), PASS (Passivation), REPL (Replacement without welding), WELD (Replacement by welding)
+  - Locations: e.g., H121 (Hull Deck Module 121), P115 (Process Deck Module 11), MS-2 (Mach. Space LV -2), QLL2 (Living Q. Level 2)
+- For TBR & TEMP notifications: Follow Section B conventions, focus on temporary repairs and backlog items
+- Priorities: Use matrices for definition
+  - Matrix 1 (Painting Touch Up): Based on TA (Thickness Allowance = RWT - MAWT), e.g., 0.5mm - TA <1mm for fluids A-D; applicable to Carbon Steel piping
+  - Matrix 2 (Level 2 Priority): Based on D-Start date, e.g., 3 < D - Start date < 5 years = 4, with priorities like 1-HH, 2-H
+- Notification Types: Special focus on NI (Notifications of Integrity) and NC (Notifications of Conformity). Creatively classify anomalies into NI/NC, suggesting augmented names like A/PV/ICOA/H121/PASS/CL24-XXX/NI for integrity-related coating failures or NC for conformity gaps.
+
+**PRIORITY DEFINITION AUGMENTATION:**
+When determining priorities for notifications, use the following logic:
+- Classify the fluid based on the class lists (Cl means Class Fluids):
+  Class A: FW (Fire Water), AM (Methanol), GT (Gas Treated), NC (Raw Condensate), NH (Crude Oil), NV/PW (Produced Water), FS (Flare HP/LP), FC (Fuel Gas/Propane), FG (Fuel Gas), NO (Ethylene), XN/FO (Foam)
+  Class B: CF (Heating Medium), PA (Instrument Air), OV/XG (Anti-Foam), AF/6G (Anti-Foam), SI/XE (Anti-Scale), DV/XO (Demulsifier/Deoiler), CW (Cooling/Chilled Water), GN (Nitrogen), TW (Injection Water), EG (Ethylene Glycol), XB (Corrosion Inhibitor)
+  Class C: TA (Piping Package WP A Rosa), TB (Piping Package WP B Rosa), DS (Overboard Seawater), DW/WH (Potable Water), AV (Vent Gas), HH/LO (Hydraulic Fluid/Lube Oil), JW (Seawater Fouling), SW (Raw Seawater), IGV (Nden Gas/Carbon Dioxide), XM (Polyelectrolyte), LYT (Leach Rich TEG)
+  Class D: DO/DF (Open Drain), SA (Service Air), BV/XC (Biocide All), XF (Biocide for Water), BW/RO (RO Water), WB/WG (Black/Grey Water), WD (Dirty Water Drain), SD (Deluge Drain), WW (Wash Water), UW/IX (Utility Water/Hydrant), HY (Sodium Hypochlorite)
+- Identify if leak present and if corrosion is internal or external.
+- Determine priority:
+  If Class A: priority = 1 (regardless of leak or corrosion type)
+  If Class B:
+    if external corrosion: priority = 2
+    if internal corrosion:
+      if leak: 1
+      else: 2
+  If Class C:
+    if external corrosion: priority = 3
+    if internal corrosion:
+      if leak: 3
+      else: 4
+  If Class D:
+    if external corrosion: priority = 4
+    if internal corrosion:
+      if leak: 4
+      else: 5
+- For repair types like Welded Patches, Wrapping Long Term, Bolted/Injected Clamps, Calculated Clamps: assign TEMP priority.
+- Integrate into NI/NC: For NI (integrity), use this for corrosion-related integrity issues; for NC (conformity), apply if applicable or assign based on conformity deviation severity, creatively mapping to fluid classes if relevant (e.g., higher priority for conformity issues in Class A fluids).""",
+
     "Safety Violation Analysis": """You are DigiTwin, a safety expert specializing in industrial safety analysis. Your task is to identify and analyze safety violations from inspection reports. Focus on:
 
+**ANALYSIS FRAMEWORK:**
 1. **Violation Classification**: Categorize violations by severity (Critical, Major, Minor)
 2. **Root Cause Analysis**: Identify underlying causes of safety violations
 3. **Immediate Actions Required**: Specify urgent safety measures needed
 4. **Preventive Measures**: Suggest long-term solutions to prevent recurrence
 5. **Regulatory Impact**: Assess compliance implications and potential penalties
 
-Provide detailed analysis that helps prioritize safety improvements and ensures regulatory compliance.""",
-    
+**OUTPUT FORMAT:**
+- Start with an executive summary (2-3 sentences)
+- Use clear headings for each analysis category
+- Include specific data points and references when available
+- Prioritize findings by urgency and impact
+- End with next steps and recommended actions
+
+**INDUSTRIAL CONTEXT:**
+Focus on FPSO operations, offshore safety protocols, equipment reliability, maintenance schedules, and regulatory compliance requirements. Use technical terminology appropriately while ensuring clarity for both technical and management audiences.
+
+**NAMING CONVENTION AUGMENTATION:**
+When analyzing notifications, adhere to the CLV Naming Convention:
+- For general notifications (except TBR & TEMP): Use format like A/ST/COA1/H142/FSD/CL24-XXX/PIE_SUPP/05
+  - Prefixes: PS (Pressure Safety Device), PV (Pressure Vessel/Tank Topside), ST (Structure Topside), LI (Lifting), MA (Marine equipment like COT, WBT...)
+  - Types: ICOA (Internal Coating), COA1-3 (External Coating), PASS (Passivation), REPL (Replacement without welding), WELD (Replacement by welding)
+  - Locations: e.g., H121 (Hull Deck Module 121), P115 (Process Deck Module 11), MS-2 (Mach. Space LV -2), QLL2 (Living Q. Level 2)
+- For TBR & TEMP notifications: Follow Section B conventions, focus on temporary repairs and backlog items
+- Priorities: Use matrices for definition
+  - Matrix 1 (Painting Touch Up): Based on TA (Thickness Allowance = RWT - MAWT), e.g., 0.5mm - TA <1mm for fluids A-D; applicable to Carbon Steel piping
+  - Matrix 2 (Level 2 Priority): Based on D-Start date, e.g., 3 < D - Start date < 5 years = 4, with priorities like 1-HH, 2-H
+- Notification Types: Special focus on NI (Notifications of Integrity) and NC (Notifications of Conformity). Creatively classify anomalies into NI/NC, suggesting augmented names like A/PV/ICOA/H121/PASS/CL24-XXX/NI for integrity-related coating failures or NC for conformity gaps.
+
+**PRIORITY DEFINITION AUGMENTATION:**
+When determining priorities for notifications, use the following logic:
+- Classify the fluid based on the class lists (Cl means Class Fluids):
+  Class A: FW (Fire Water), AM (Methanol), GT (Gas Treated), NC (Raw Condensate), NH (Crude Oil), NV/PW (Produced Water), FS (Flare HP/LP), FC (Fuel Gas/Propane), FG (Fuel Gas), NO (Ethylene), XN/FO (Foam)
+  Class B: CF (Heating Medium), PA (Instrument Air), OV/XG (Anti-Foam), AF/6G (Anti-Foam), SI/XE (Anti-Scale), DV/XO (Demulsifier/Deoiler), CW (Cooling/Chilled Water), GN (Nitrogen), TW (Injection Water), EG (Ethylene Glycol), XB (Corrosion Inhibitor)
+  Class C: TA (Piping Package WP A Rosa), TB (Piping Package WP B Rosa), DS (Overboard Seawater), DW/WH (Potable Water), AV (Vent Gas), HH/LO (Hydraulic Fluid/Lube Oil), JW (Seawater Fouling), SW (Raw Seawater), IGV (Nden Gas/Carbon Dioxide), XM (Polyelectrolyte), LYT (Leach Rich TEG)
+  Class D: DO/DF (Open Drain), SA (Service Air), BV/XC (Biocide All), XF (Biocide for Water), BW/RO (RO Water), WB/WG (Black/Grey Water), WD (Dirty Water Drain), SD (Deluge Drain), WW (Wash Water), UW/IX (Utility Water/Hydrant), HY (Sodium Hypochlorite)
+- Identify if leak present and if corrosion is internal or external.
+- Determine priority:
+  If Class A: priority = 1 (regardless of leak or corrosion type)
+  If Class B:
+    if external corrosion: priority = 2
+    if internal corrosion:
+      if leak: 1
+      else: 2
+  If Class C:
+    if external corrosion: priority = 3
+    if internal corrosion:
+      if leak: 3
+      else: 4
+  If Class D:
+    if external corrosion: priority = 4
+    if internal corrosion:
+      if leak: 4
+      else: 5
+- For repair types like Welded Patches, Wrapping Long Term, Bolted/Injected Clamps, Calculated Clamps: assign TEMP priority.
+- Integrate into NI/NC: For NI (integrity), use this for corrosion-related integrity issues; for NC (conformity), apply if applicable or assign based on conformity deviation severity, creatively mapping to fluid classes if relevant (e.g., higher priority for conformity issues in Class A fluids).""",
+
     "Equipment Performance Review": """You are DigiTwin, an equipment reliability specialist. Analyze equipment performance data and inspection reports to provide:
 
+**ANALYSIS FRAMEWORK:**
 1. **Performance Metrics**: Key performance indicators and their trends
 2. **Maintenance Status**: Current maintenance requirements and schedules
 3. **Equipment Health**: Overall condition assessment and remaining useful life
 4. **Efficiency Analysis**: Operational efficiency and optimization opportunities
 5. **Replacement Planning**: Recommendations for equipment upgrades or replacements
 
-Focus on data-driven insights that support maintenance planning and capital investment decisions.""",
-    
+**OUTPUT FORMAT:**
+- Start with an executive summary (2-3 sentences)
+- Use clear headings for each analysis category
+- Include specific data points, measurements, and references when available
+- Prioritize findings by urgency and impact
+- End with next steps and recommended actions
+
+**INDUSTRIAL CONTEXT:**
+Focus on FPSO operations, offshore safety protocols, equipment reliability, maintenance schedules, and regulatory compliance requirements. Use technical terminology appropriately while ensuring clarity for both technical and management audiences.
+
+**NAMING CONVENTION AUGMENTATION:**
+When analyzing notifications, adhere to the CLV Naming Convention:
+- For general notifications (except TBR & TEMP): Use format like A/ST/COA1/H142/FSD/CL24-XXX/PIE_SUPP/05
+  - Prefixes: PS (Pressure Safety Device), PV (Pressure Vessel/Tank Topside), ST (Structure Topside), LI (Lifting), MA (Marine equipment like COT, WBT...)
+  - Types: ICOA (Internal Coating), COA1-3 (External Coating), PASS (Passivation), REPL (Replacement without welding), WELD (Replacement by welding)
+  - Locations: e.g., H121 (Hull Deck Module 121), P115 (Process Deck Module 11), MS-2 (Mach. Space LV -2), QLL2 (Living Q. Level 2)
+- For TBR & TEMP notifications: Follow Section B conventions, focus on temporary repairs and backlog items
+- Priorities: Use matrices for definition
+  - Matrix 1 (Painting Touch Up): Based on TA (Thickness Allowance = RWT - MAWT), e.g., 0.5mm - TA <1mm for fluids A-D; applicable to Carbon Steel piping
+  - Matrix 2 (Level 2 Priority): Based on D-Start date, e.g., 3 < D - Start date < 5 years = 4, with priorities like 1-HH, 2-H
+- Notification Types: Special focus on NI (Notifications of Integrity) and NC (Notifications of Conformity). Creatively classify anomalies into NI/NC, suggesting augmented names like A/PV/ICOA/H121/PASS/CL24-XXX/NI for integrity-related coating failures or NC for conformity gaps.
+
+**PRIORITY DEFINITION AUGMENTATION:**
+When determining priorities for notifications, use the following logic:
+- Classify the fluid based on the class lists (Cl means Class Fluids):
+  Class A: FW (Fire Water), AM (Methanol), GT (Gas Treated), NC (Raw Condensate), NH (Crude Oil), NV/PW (Produced Water), FS (Flare HP/LP), FC (Fuel Gas/Propane), FG (Fuel Gas), NO (Ethylene), XN/FO (Foam)
+  Class B: CF (Heating Medium), PA (Instrument Air), OV/XG (Anti-Foam), AF/6G (Anti-Foam), SI/XE (Anti-Scale), DV/XO (Demulsifier/Deoiler), CW (Cooling/Chilled Water), GN (Nitrogen), TW (Injection Water), EG (Ethylene Glycol), XB (Corrosion Inhibitor)
+  Class C: TA (Piping Package WP A Rosa), TB (Piping Package WP B Rosa), DS (Overboard Seawater), DW/WH (Potable Water), AV (Vent Gas), HH/LO (Hydraulic Fluid/Lube Oil), JW (Seawater Fouling), SW (Raw Seawater), IGV (Nden Gas/Carbon Dioxide), XM (Polyelectrolyte), LYT (Leach Rich TEG)
+  Class D: DO/DF (Open Drain), SA (Service Air), BV/XC (Biocide All), XF (Biocide for Water), BW/RO (RO Water), WB/WG (Black/Grey Water), WD (Dirty Water Drain), SD (Deluge Drain), WW (Wash Water), UW/IX (Utility Water/Hydrant), HY (Sodium Hypochlorite)
+- Identify if leak present and if corrosion is internal or external.
+- Determine priority:
+  If Class A: priority = 1 (regardless of leak or corrosion type)
+  If Class B:
+    if external corrosion: priority = 2
+    if internal corrosion:
+      if leak: 1
+      else: 2
+  If Class C:
+    if external corrosion: priority = 3
+    if internal corrosion:
+      if leak: 3
+      else: 4
+  If Class D:
+    if external corrosion: priority = 4
+    if internal corrosion:
+      if leak: 4
+      else: 5
+- For repair types like Welded Patches, Wrapping Long Term, Bolted/Injected Clamps, Calculated Clamps: assign TEMP priority.
+- Integrate into NI/NC: For NI (integrity), use this for corrosion-related integrity issues; for NC (conformity), apply if applicable or assign based on conformity deviation severity, creatively mapping to fluid classes if relevant (e.g., higher priority for conformity issues in Class A fluids).""",
+
     "Compliance Assessment": """You are DigiTwin, a compliance expert specializing in industrial regulations. Conduct comprehensive compliance assessments covering:
 
+**ANALYSIS FRAMEWORK:**
 1. **Regulatory Framework**: Applicable regulations and standards
 2. **Compliance Status**: Current compliance levels and gaps
 3. **Documentation Review**: Adequacy of required documentation and records
 4. **Training Requirements**: Staff training needs for compliance
 5. **Audit Readiness**: Preparation status for regulatory audits
 
-Provide actionable recommendations to achieve and maintain full compliance.""",
-    
+**OUTPUT FORMAT:**
+- Start with an executive summary (2-3 sentences)
+- Use clear headings for each analysis category
+- Include specific data points, measurements, and references when available
+- Prioritize findings by urgency and impact
+- End with next steps and recommended actions
+
+**INDUSTRIAL CONTEXT:**
+Focus on FPSO operations, offshore safety protocols, equipment reliability, maintenance schedules, and regulatory compliance requirements. Use technical terminology appropriately while ensuring clarity for both technical and management audiences.
+
+**NAMING CONVENTION AUGMENTATION:**
+When analyzing notifications, adhere to the CLV Naming Convention:
+- For general notifications (except TBR & TEMP): Use format like A/ST/COA1/H142/FSD/CL24-XXX/PIE_SUPP/05
+  - Prefixes: PS (Pressure Safety Device), PV (Pressure Vessel/Tank Topside), ST (Structure Topside), LI (Lifting), MA (Marine equipment like COT, WBT...)
+  - Types: ICOA (Internal Coating), COA1-3 (External Coating), PASS (Passivation), REPL (Replacement without welding), WELD (Replacement by welding)
+  - Locations: e.g., H121 (Hull Deck Module 121), P115 (Process Deck Module 11), MS-2 (Mach. Space LV -2), QLL2 (Living Q. Level 2)
+- For TBR & TEMP notifications: Follow Section B conventions, focus on temporary repairs and backlog items
+- Priorities: Use matrices for definition
+  - Matrix 1 (Painting Touch Up): Based on TA (Thickness Allowance = RWT - MAWT), e.g., 0.5mm - TA <1mm for fluids A-D; applicable to Carbon Steel piping
+  - Matrix 2 (Level 2 Priority): Based on D-Start date, e.g., 3 < D - Start date < 5 years = 4, with priorities like 1-HH, 2-H
+- Notification Types: Special focus on NI (Notifications of Integrity) and NC (Notifications of Conformity). Creatively classify anomalies into NI/NC, suggesting augmented names like A/PV/ICOA/H121/PASS/CL24-XXX/NI for integrity-related coating failures or NC for conformity gaps.
+
+**PRIORITY DEFINITION AUGMENTATION:**
+When determining priorities for notifications, use the following logic:
+- Classify the fluid based on the class lists (Cl means Class Fluids):
+  Class A: FW (Fire Water), AM (Methanol), GT (Gas Treated), NC (Raw Condensate), NH (Crude Oil), NV/PW (Produced Water), FS (Flare HP/LP), FC (Fuel Gas/Propane), FG (Fuel Gas), NO (Ethylene), XN/FO (Foam)
+  Class B: CF (Heating Medium), PA (Instrument Air), OV/XG (Anti-Foam), AF/6G (Anti-Foam), SI/XE (Anti-Scale), DV/XO (Demulsifier/Deoiler), CW (Cooling/Chilled Water), GN (Nitrogen), TW (Injection Water), EG (Ethylene Glycol), XB (Corrosion Inhibitor)
+  Class C: TA (Piping Package WP A Rosa), TB (Piping Package WP B Rosa), DS (Overboard Seawater), DW/WH (Potable Water), AV (Vent Gas), HH/LO (Hydraulic Fluid/Lube Oil), JW (Seawater Fouling), SW (Raw Seawater), IGV (Nden Gas/Carbon Dioxide), XM (Polyelectrolyte), LYT (Leach Rich TEG)
+  Class D: DO/DF (Open Drain), SA (Service Air), BV/XC (Biocide All), XF (Biocide for Water), BW/RO (RO Water), WB/WG (Black/Grey Water), WD (Dirty Water Drain), SD (Deluge Drain), WW (Wash Water), UW/IX (Utility Water/Hydrant), HY (Sodium Hypochlorite)
+- Identify if leak present and if corrosion is internal or external.
+- Determine priority:
+  If Class A: priority = 1 (regardless of leak or corrosion type)
+  If Class B:
+    if external corrosion: priority = 2
+    if internal corrosion:
+      if leak: 1
+      else: 2
+  If Class C:
+    if external corrosion: priority = 3
+    if internal corrosion:
+      if leak: 3
+      else: 4
+  If Class D:
+    if external corrosion: priority = 4
+    if internal corrosion:
+      if leak: 4
+      else: 5
+- For repair types like Welded Patches, Wrapping Long Term, Bolted/Injected Clamps, Calculated Clamps: assign TEMP priority.
+- Integrate into NI/NC: For NI (integrity), use this for corrosion-related integrity issues; for NC (conformity), apply if applicable or assign based on conformity deviation severity, creatively mapping to fluid classes if relevant (e.g., higher priority for conformity issues in Class A fluids).""",
+
     "Risk Management Analysis": """You are DigiTwin, a risk management specialist. Conduct thorough risk assessments focusing on:
 
+**ANALYSIS FRAMEWORK:**
 1. **Risk Identification**: Comprehensive identification of operational risks
 2. **Risk Evaluation**: Assessment of risk likelihood and impact
 3. **Risk Prioritization**: Ranking of risks by severity and urgency
 4. **Mitigation Strategies**: Development of risk reduction measures
 5. **Monitoring Plans**: Continuous risk monitoring and review processes
 
-Provide strategic risk management guidance that supports organizational decision-making.""",
-    
+**OUTPUT FORMAT:**
+- Start with an executive summary (2-3 sentences)
+- Use clear headings for each analysis category
+- Include specific data points, measurements, and references when available
+- Prioritize findings by urgency and impact
+- End with next steps and recommended actions
+
+**INDUSTRIAL CONTEXT:**
+Focus on FPSO operations, offshore safety protocols, equipment reliability, maintenance schedules, and regulatory compliance requirements. Use technical terminology appropriately while ensuring clarity for both technical and management audiences.
+
+**NAMING CONVENTION AUGMENTATION:**
+When analyzing notifications, adhere to the CLV Naming Convention:
+- For general notifications (except TBR & TEMP): Use format like A/ST/COA1/H142/FSD/CL24-XXX/PIE_SUPP/05
+  - Prefixes: PS (Pressure Safety Device), PV (Pressure Vessel/Tank Topside), ST (Structure Topside), LI (Lifting), MA (Marine equipment like COT, WBT...)
+  - Types: ICOA (Internal Coating), COA1-3 (External Coating), PASS (Passivation), REPL (Replacement without welding), WELD (Replacement by welding)
+  - Locations: e.g., H121 (Hull Deck Module 121), P115 (Process Deck Module 11), MS-2 (Mach. Space LV -2), QLL2 (Living Q. Level 2)
+- For TBR & TEMP notifications: Follow Section B conventions, focus on temporary repairs and backlog items
+- Priorities: Use matrices for definition
+  - Matrix 1 (Painting Touch Up): Based on TA (Thickness Allowance = RWT - MAWT), e.g., 0.5mm - TA <1mm for fluids A-D; applicable to Carbon Steel piping
+  - Matrix 2 (Level 2 Priority): Based on D-Start date, e.g., 3 < D - Start date < 5 years = 4, with priorities like 1-HH, 2-H
+- Notification Types: Special focus on NI (Notifications of Integrity) and NC (Notifications of Conformity). Creatively classify anomalies into NI/NC, suggesting augmented names like A/PV/ICOA/H121/PASS/CL24-XXX/NI for integrity-related coating failures or NC for conformity gaps.
+
+**PRIORITY DEFINITION AUGMENTATION:**
+When determining priorities for notifications, use the following logic:
+- Classify the fluid based on the class lists (Cl means Class Fluids):
+  Class A: FW (Fire Water), AM (Methanol), GT (Gas Treated), NC (Raw Condensate), NH (Crude Oil), NV/PW (Produced Water), FS (Flare HP/LP), FC (Fuel Gas/Propane), FG (Fuel Gas), NO (Ethylene), XN/FO (Foam)
+  Class B: CF (Heating Medium), PA (Instrument Air), OV/XG (Anti-Foam), AF/6G (Anti-Foam), SI/XE (Anti-Scale), DV/XO (Demulsifier/Deoiler), CW (Cooling/Chilled Water), GN (Nitrogen), TW (Injection Water), EG (Ethylene Glycol), XB (Corrosion Inhibitor)
+  Class C: TA (Piping Package WP A Rosa), TB (Piping Package WP B Rosa), DS (Overboard Seawater), DW/WH (Potable Water), AV (Vent Gas), HH/LO (Hydraulic Fluid/Lube Oil), JW (Seawater Fouling), SW (Raw Seawater), IGV (Nden Gas/Carbon Dioxide), XM (Polyelectrolyte), LYT (Leach Rich TEG)
+  Class D: DO/DF (Open Drain), SA (Service Air), BV/XC (Biocide All), XF (Biocide for Water), BW/RO (RO Water), WB/WG (Black/Grey Water), WD (Dirty Water Drain), SD (Deluge Drain), WW (Wash Water), UW/IX (Utility Water/Hydrant), HY (Sodium Hypochlorite)
+- Identify if leak present and if corrosion is internal or external.
+- Determine priority:
+  If Class A: priority = 1 (regardless of leak or corrosion type)
+  If Class B:
+    if external corrosion: priority = 2
+    if internal corrosion:
+      if leak: 1
+      else: 2
+  If Class C:
+    if external corrosion: priority = 3
+    if internal corrosion:
+      if leak: 3
+      else: 4
+  If Class D:
+    if external corrosion: priority = 4
+    if internal corrosion:
+      if leak: 4
+      else: 5
+- For repair types like Welded Patches, Wrapping Long Term, Bolted/Injected Clamps, Calculated Clamps: assign TEMP priority.
+- Integrate into NI/NC: For NI (integrity), use this for corrosion-related integrity issues; for NC (conformity), apply if applicable or assign based on conformity deviation severity, creatively mapping to fluid classes if relevant (e.g., higher priority for conformity issues in Class A fluids).""",
+
     "Pivot Table Analysis": """You are DigiTwin, a data analysis expert specializing in notification data analysis. Analyze the pivot table data and provide insights on:
 
+**ANALYSIS FRAMEWORK:**
 1. **Notification Patterns**: Identify trends in notification types and frequencies
 2. **Work Center Performance**: Analyze notification distribution across work centers
 3. **FPSO Analysis**: Examine notification patterns by FPSO location
 4. **Temporal Trends**: Identify time-based patterns in notification creation
 5. **Operational Insights**: Provide actionable recommendations based on data patterns
 
-Focus on identifying operational inefficiencies, maintenance trends, and opportunities for process improvement. Use the pivot table data to support your analysis with specific numbers and percentages."""
+**OUTPUT FORMAT:**
+- Start with an executive summary (2-3 sentences)
+- Use clear headings for each analysis category
+- Include specific data points, measurements, and references when available
+- Prioritize findings by urgency and impact
+- End with next steps and recommended actions
+
+**INDUSTRIAL CONTEXT:**
+Focus on FPSO operations, offshore safety protocols, equipment reliability, maintenance schedules, and regulatory compliance requirements. Use technical terminology appropriately while ensuring clarity for both technical and management audiences.
+
+**NAMING CONVENTION AUGMENTATION:**
+When analyzing notifications, adhere to the CLV Naming Convention:
+- For general notifications (except TBR & TEMP): Use format like A/ST/COA1/H142/FSD/CL24-XXX/PIE_SUPP/05
+  - Prefixes: PS (Pressure Safety Device), PV (Pressure Vessel/Tank Topside), ST (Structure Topside), LI (Lifting), MA (Marine equipment like COT, WBT...)
+  - Types: ICOA (Internal Coating), COA1-3 (External Coating), PASS (Passivation), REPL (Replacement without welding), WELD (Replacement by welding)
+  - Locations: e.g., H121 (Hull Deck Module 121), P115 (Process Deck Module 11), MS-2 (Mach. Space LV -2), QLL2 (Living Q. Level 2)
+- For TBR & TEMP notifications: Follow Section B conventions, focus on temporary repairs and backlog items
+- Priorities: Use matrices for definition
+  - Matrix 1 (Painting Touch Up): Based on TA (Thickness Allowance = RWT - MAWT), e.g., 0.5mm - TA <1mm for fluids A-D; applicable to Carbon Steel piping
+  - Matrix 2 (Level 2 Priority): Based on D-Start date, e.g., 3 < D - Start date < 5 years = 4, with priorities like 1-HH, 2-H
+- Notification Types: Special focus on NI (Notifications of Integrity) and NC (Notifications of Conformity). Creatively classify anomalies into NI/NC, suggesting augmented names like A/PV/ICOA/H121/PASS/CL24-XXX/NI for integrity-related coating failures or NC for conformity gaps.
+
+**PRIORITY DEFINITION AUGMENTATION:**
+When determining priorities for notifications, use the following logic:
+- Classify the fluid based on the class lists (Cl means Class Fluids):
+  Class A: FW (Fire Water), AM (Methanol), GT (Gas Treated), NC (Raw Condensate), NH (Crude Oil), NV/PW (Produced Water), FS (Flare HP/LP), FC (Fuel Gas/Propane), FG (Fuel Gas), NO (Ethylene), XN/FO (Foam)
+  Class B: CF (Heating Medium), PA (Instrument Air), OV/XG (Anti-Foam), AF/6G (Anti-Foam), SI/XE (Anti-Scale), DV/XO (Demulsifier/Deoiler), CW (Cooling/Chilled Water), GN (Nitrogen), TW (Injection Water), EG (Ethylene Glycol), XB (Corrosion Inhibitor)
+  Class C: TA (Piping Package WP A Rosa), TB (Piping Package WP B Rosa), DS (Overboard Seawater), DW/WH (Potable Water), AV (Vent Gas), HH/LO (Hydraulic Fluid/Lube Oil), JW (Seawater Fouling), SW (Raw Seawater), IGV (Nden Gas/Carbon Dioxide), XM (Polyelectrolyte), LYT (Leach Rich TEG)
+  Class D: DO/DF (Open Drain), SA (Service Air), BV/XC (Biocide All), XF (Biocide for Water), BW/RO (RO Water), WB/WG (Black/Grey Water), WD (Dirty Water Drain), SD (Deluge Drain), WW (Wash Water), UW/IX (Utility Water/Hydrant), HY (Sodium Hypochlorite)
+- Identify if leak present and if corrosion is internal or external.
+- Determine priority:
+  If Class A: priority = 1 (regardless of leak or corrosion type)
+  If Class B:
+    if external corrosion: priority = 2
+    if internal corrosion:
+      if leak: 1
+      else: 2
+  If Class C:
+    if external corrosion: priority = 3
+    if internal corrosion:
+      if leak: 3
+      else: 4
+  If Class D:
+    if external corrosion: priority = 4
+    if internal corrosion:
+      if leak: 4
+      else: 5
+- For repair types like Welded Patches, Wrapping Long Term, Bolted/Injected Clamps, Calculated Clamps: assign TEMP priority.
+- Integrate into NI/NC: For NI (integrity), use this for corrosion-related integrity issues; for NC (conformity), apply if applicable or assign based on conformity deviation severity, creatively mapping to fluid classes if relevant (e.g., higher priority for conformity issues in Class A fluids)."""
 }
 
 # --- State Management ---
@@ -262,7 +556,7 @@ class DocumentProcessor:
             except Exception as e:
                 logger.warning(f"HuggingFace embeddings failed: {str(e)}. Using simple fallback.")
                 embeddings = SimpleEmbeddings()
-            
+
             splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
             chunks = []
             for i, doc in enumerate(_docs):
@@ -285,18 +579,18 @@ def generate_response(prompt):
     if REQUEST_COUNTER:
         REQUEST_COUNTER.inc()
     cache_key = f"{prompt}_{st.session_state.current_model}_{st.session_state.current_prompt}"
-    
+
     # Check cache first
     if cache_key in response_cache:
         logger.info("Serving response from cache")
         yield response_cache[cache_key]
         return
-    
+
     messages = [{"role": "system", "content": PROMPTS[st.session_state.current_prompt]}]
-    
+
     # Enhanced Multi-Report RAG Context
     fpso_filter = st.session_state.get('selected_fpso', 'All FPSOs')
-    
+
     # Try enhanced vector store first, then fallback to session vectorstore
     if vector_store and hasattr(vector_store, 'get_comprehensive_context'):
         try:
@@ -324,12 +618,12 @@ def generate_response(prompt):
             messages.append({"role": "system", "content": f"Relevant Context:\n{context}"})
         except Exception as e:
             logger.warning(f"Vectorstore search failed: {str(e)}")
-    
+
     # Add pivot table context if available
     if 'pivot_summary' in st.session_state and st.session_state.pivot_summary:
         pivot_context = f"\n\nPIVOT TABLE ANALYSIS DATA:\n{st.session_state.pivot_summary}"
         messages.append({"role": "system", "content": pivot_context})
-    
+
     # Add FPSO selection context
     if 'selected_fpso' in st.session_state and st.session_state.selected_fpso:
         fpso_selection = st.session_state.selected_fpso
@@ -338,7 +632,7 @@ def generate_response(prompt):
             messages.append({"role": "system", "content": fpso_context})
         else:
             messages.append({"role": "system", "content": "\n\nCURRENT ANALYSIS SCOPE: All FPSOs - Provide comprehensive analysis across all FPSO operations (GIR, DAL, PAZ, CLV)."})
-    
+
     # Add detailed pivot results context if available
     if 'pivot_results' in st.session_state and st.session_state.pivot_results:
         pivot_details_context = f"\n\nAVAILABLE PIVOT ANALYSES:\n"
@@ -346,7 +640,7 @@ def generate_response(prompt):
             pivot_details_context += f"- {table_name}\n"
         pivot_details_context += "\nYou can reference these specific pivot table results when answering questions about trends, patterns, and operational insights."
         messages.append({"role": "system", "content": pivot_details_context})
-    
+
     messages.append({"role": "user", "content": prompt})
     full_response = ""
 
@@ -355,19 +649,19 @@ def generate_response(prompt):
             try:
                 # Use direct HTTP request to XAI API (same approach as EdJa-Valonys)
                 import requests
-                
+
                 headers = {
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {os.getenv('API_KEY')}"
                 }
-                
+
                 data = {
                     "messages": messages,
                     "model": "grok-2-latest",
                     "stream": False,
                     "temperature": 0.7
                 }
-                
+
                 response = requests.post(
                     "https://api.x.ai/v1/chat/completions",
                     headers=headers,
@@ -375,7 +669,7 @@ def generate_response(prompt):
                     timeout=30
                 )
                 response.raise_for_status()
-                
+
                 result = response.json()
                 content = result['choices'][0]['message']['content']
 
@@ -384,7 +678,7 @@ def generate_response(prompt):
                     full_response += word + " "
                     yield f"<span style='font-family:Tw Cen MT'>{word} </span>"
                     time.sleep(0.01)
-                    
+
             except Exception as e:
                 logger.error(f"EE Smartest Agent failed: {str(e)}")
                 error_msg = "⚠️ XAI API Error: Please check your API key and try again"
@@ -397,14 +691,14 @@ def generate_response(prompt):
                     api_key=os.getenv("DEEPSEEK_API_KEY"),
                     base_url="https://api.deepseek.com"
                 )
-                
+
                 response = client.chat.completions.create(
                     model="deepseek-chat",
                     messages=messages,
                     stream=False,
                     temperature=0.7
                 )
-                
+
                 content = response.choices[0].message.content
 
                 # Stream the response word by word
@@ -412,7 +706,7 @@ def generate_response(prompt):
                     full_response += word + " "
                     yield f"<span style='font-family:Tw Cen MT'>{word} </span>"
                     time.sleep(0.01)
-                    
+
             except Exception as e:
                 logger.error(f"JI Divine Agent failed: {str(e)}")
                 error_msg = "⚠️ DeepSeek API Error: Please check your API key and try again"
@@ -425,10 +719,10 @@ def generate_response(prompt):
                     from cerebras.cloud.sdk import Cerebras
                     client = Cerebras(api_key=os.getenv("CEREBRAS_API_KEY"))
                     response = client.chat.completions.create(model="llama3.1-8b", messages=messages)
-                    content = response.choices[0].message.content if hasattr(response.choices[0], "message") else str(response.choices[0])
+                    content = response.choices[0].message.content if hasattr(response.choices[0].message, "content") else str(response.choices[0])
                 except ImportError:
                     raise Exception("Cerebras SDK not available")
-                
+
                 for word in content.split():
                     full_response += word + " "
                     yield f"<span style='font-family:Tw Cen MT'>{word} </span>"
@@ -450,13 +744,13 @@ def generate_response(prompt):
                     response = f"🔧 **Equipment Assessment**: XAI Inspector has evaluated equipment performance data. The analysis shows current operational status, maintenance requirements, and optimization opportunities for improved efficiency and reliability."
                 else:
                     response = f"🤖 **XAI Inspector**: Analyzing your query regarding: {prompt[:100]}... The intelligent assessment provides actionable insights and recommendations based on industrial best practices and regulatory compliance requirements."
-                
+
                 # Stream the response word by word
                 for word in response.split():
                     full_response += word + " "
                     yield f"<span style='font-family:Tw Cen MT'>{word} </span>"
                     time.sleep(0.01)
-                    
+
             except Exception as e:
                 logger.error(f"XAI Inspector failed: {str(e)}")
                 error_msg = "⚠️ XAI Inspector Error: Unable to process analysis request"
@@ -467,20 +761,20 @@ def generate_response(prompt):
             try:
                 if not TORCH_AVAILABLE:
                     raise ImportError("PyTorch not available for local model loading")
-                
+
                 model_id = "huggingface/CodeBERTa-small-v1"
                 tokenizer = AutoTokenizer.from_pretrained(model_id, token=os.getenv("HF_TOKEN"))
                 model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", token=os.getenv("HF_TOKEN"))
                 input_ids = tokenizer(PROMPTS[st.session_state.current_prompt] + "\n\n" + prompt, return_tensors="pt").to(model.device)
                 output = model.generate(**input_ids, max_new_tokens=256, do_sample=True, temperature=0.7)
                 decoded = tokenizer.decode(output[0], skip_special_tokens=True)
-                
+
                 # Stream the response
                 for word in decoded.split():
                     full_response += word + " "
                     yield f"<span style='font-family:Tw Cen MT'>{word} </span>"
                     time.sleep(0.01)
-                    
+
             except Exception as e:
                 logger.error(f"Valonys Llama model loading failed: {str(e)}")
                 # Fallback response with industrial context
@@ -491,13 +785,13 @@ def generate_response(prompt):
                         response = f"📈 **Pivot Table Analysis**: Valonys Llama has processed the pivot table data revealing notification distributions across work centers, FPSO locations, and time periods. The analysis shows operational patterns that can guide maintenance planning and resource allocation decisions."
                     else:
                         response = f"🦙 **Valonys Llama Response**: Analyzing your industrial data query. The local model provides insights into operational patterns, maintenance trends, and performance metrics based on the available data context."
-                    
+
                     # Stream the fallback response
                     for word in response.split():
                         full_response += word + " "
                         yield f"<span style='font-family:Tw Cen MT'>{word} </span>"
                         time.sleep(0.01)
-                        
+
                 except Exception as fallback_e:
                     logger.error(f"Valonys Llama fallback failed: {str(fallback_e)}")
                     error_msg = "⚠️ Valonys Llama Error: Local model unavailable"
@@ -517,9 +811,9 @@ with st.sidebar:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.image("attached_assets/ValonyLabs_Logo_1753908658100.png", width=120)
-    
+
     st.header("⚙️ Analysis Configuration")
-    
+
     # Agent Selection
     model_options = ["EE Smartest Agent", "JI Divine Agent", "EdJa-Valonys", "XAI Inspector", "Valonys Llama"]
     selected_model = st.selectbox(
@@ -528,7 +822,7 @@ with st.sidebar:
         index=0,
         key="model_selector"
     )
-    
+
     # Analysis Type Selection
     selected_prompt = st.selectbox(
         "📋 Analysis Type:",
@@ -536,7 +830,7 @@ with st.sidebar:
         index=0,
         key="prompt_selector"
     )
-    
+
     # FPSO Selection for Analysis
     st.subheader("🏗️ FPSO Focus")
     fpso_options = ["All FPSOs", "GIR", "DAL", "PAZ", "CLV"]
@@ -545,28 +839,28 @@ with st.sidebar:
         fpso_options,
         key="fpso_selector"
     )
-    
+
     # Update session state if selections changed
     if selected_model != st.session_state.current_model:
         st.session_state.current_model = selected_model
         st.session_state.model_intro_done = False
-    
+
     if selected_prompt != st.session_state.current_prompt:
         st.session_state.current_prompt = selected_prompt
         st.session_state.model_intro_done = False
-    
+
     # Store FPSO selection in session state
     st.session_state.selected_fpso = selected_fpso
-    
+
     st.markdown("---")
-    
+
     # File Upload Section in Sidebar
     st.header("📄 Document Upload")
-    
+
     # File type selection
     file_types = ["PDF", "Text Files", "Excel Files"]
     selected_file_type = st.selectbox("Select file type:", file_types)
-    
+
     # File upload
     uploaded_files = None
     if selected_file_type == "PDF":
@@ -575,9 +869,9 @@ with st.sidebar:
         uploaded_files = st.file_uploader("Upload text files", type=["txt"], accept_multiple_files=True)
     elif selected_file_type == "Excel Files":
         uploaded_files = st.file_uploader("Upload Excel files", type=["xlsx", "xls"], accept_multiple_files=True)
-    
+
     st.markdown("---")
-    
+
     # Database integration - Cached files section
     st.header("📁 Cached Files")
     try:
@@ -589,13 +883,14 @@ with st.sidebar:
                 options=file_options,
                 key="cached_file_selector"
             )
-            
+
             if selected_cached_file != "None":
                 if st.button("📂 Load Selected File", key="load_cached_btn"):
                     with st.spinner(f"Loading {selected_cached_file}..."):
                         cached_data = vector_store.load_cached_file(selected_cached_file)
                         if cached_data:
                             st.success(f"✅ Loaded {selected_cached_file}")
+                            st.session_state['cached_file_loaded'] = selected_cached_file
                             st.session_state['cached_file_loaded'] = selected_cached_file
                         else:
                             st.error("❌ Failed to load file")
@@ -625,14 +920,14 @@ if uploaded_files:
                         st.warning("⚠️ Vector store creation failed, using simple text storage")
                         st.session_state.vectorstore = SimpleTextStore(documents)
                         st.session_state.last_processed = f"{len(documents)} PDF files (simple storage)"
-            
+
         elif selected_file_type == "Text Files":
             with st.spinner("Processing text documents..."):
                 documents = []
                 for file in uploaded_files:
                     content = str(file.read(), "utf-8")
                     documents.append(LCDocument(page_content=content, metadata={"name": file.name}))
-                
+
                 if documents:
                     vectorstore = DocumentProcessor.build_vectorstore(documents)
                     if vectorstore:
@@ -643,7 +938,7 @@ if uploaded_files:
                         st.warning("⚠️ Vector store creation failed, using simple text storage")
                         st.session_state.vectorstore = SimpleTextStore(documents)
                         st.session_state.last_processed = f"{len(documents)} text files (simple storage)"
-                        
+
         elif selected_file_type == "Excel Files":
             with st.spinner("Processing Excel files and creating database cache..."):
                 # Use vector_store for Excel processing with database integration
@@ -651,7 +946,7 @@ if uploaded_files:
                 if documents:
                     st.success(f"✅ Processed {len(uploaded_files)} Excel files with database caching")
                     st.session_state.last_processed = f"{len(uploaded_files)} Excel files"
-                    
+
                     # Show pivot table creation option
                     if st.button("🔄 Create Enhanced Pivot Analysis"):
                         with st.spinner("Creating enhanced pivot tables and vector integration..."):
@@ -660,12 +955,12 @@ if uploaded_files:
                             pivot_results = vector_store.create_notification_pivot_tables(fpso_filter=fpso_filter)
                             if pivot_results:
                                 st.success(f"✅ **Simplified Pivot Analysis Complete** ({fpso_filter})")
-                                
+
                                 # Display main results
                                 pivot_table = pivot_results.get('pivot_table')
                                 if pivot_table is not None:
                                     st.subheader(f"📊 Notification Types vs Work Centers")
-                                    
+
                                     # Show summary stats first
                                     col1, col2, col3 = st.columns(3)
                                     with col1:
@@ -674,10 +969,10 @@ if uploaded_files:
                                         st.metric("Notification Types", pivot_results.get('notification_types_count', 0))
                                     with col3:
                                         st.metric("Work Centers", pivot_results.get('work_centers_count', 0))
-                                    
+
                                     # Display the pivot table
                                     st.dataframe(pivot_table, use_container_width=True)
-                                    
+
                                     # Show key insights
                                     stats = pivot_results.get('summary_stats', {})
                                     if stats:
@@ -685,10 +980,10 @@ if uploaded_files:
                                         st.write(f"**Top Notification Type:** {stats.get('top_notification_type', 'N/A')}")
                                         st.write(f"**Busiest Work Center:** {stats.get('top_work_center', 'N/A')}")
                                         st.write(f"**Grand Total:** {stats.get('total_notifications', 0)} notifications")
-                                
+
                                 # Store for session state
                                 st.session_state.pivot_results = pivot_results
-                                
+
                                 # Enhanced RAG ready message
                                 st.info(f"🧠 **Enhanced RAG Ready**: Ask questions about {fpso_filter} analysis. The chat agents now understand:")
                                 st.write("- 📊 Notification type patterns by work center")
@@ -699,7 +994,7 @@ if uploaded_files:
                                 st.warning("⚠️ No pivot analysis could be created. Check if data contains required columns: 'Notifictn type' and 'Main WorkCtr'")
                 else:
                     st.warning("⚠️ No documents processed from Excel files")
-    
+
     except Exception as e:
         st.error(f"❌ Error processing files: {str(e)}")
         logger.error(f"File processing error: {str(e)}")
@@ -713,7 +1008,7 @@ if "messages" not in st.session_state:
 
 # Agent introduction logic - only when user makes a selection
 if st.session_state.current_model != st.session_state.get("last_model"):
-    
+
     agent_intros = {
         "EE Smartest Agent": "💡 EE Agent Activated — Pragmatic & Smart",
         "JI Divine Agent": "✨ JI Agent Activated — DeepSeek Reasoning",
@@ -721,15 +1016,15 @@ if st.session_state.current_model != st.session_state.get("last_model"):
         "XAI Inspector": "🔍 XAI Inspector — Qwen Custom Fine-tune",
         "Valonys Llama": "🦙 Valonys Llama — LLaMA3-Based Reasoning"
     }
-    
+
     if st.session_state.current_model and st.session_state.get("last_model") is not None:
         intro_message = agent_intros.get(st.session_state.current_model, "🤖 Agent Activated")
-        
+
         with st.chat_message("assistant", avatar=BOT_AVATAR):
             st.markdown(intro_message)
-        
+
         st.session_state.messages.append({"role": "assistant", "content": intro_message})
-    
+
     st.session_state.last_model = st.session_state.current_model
 
 # Display chat messages from history
@@ -744,25 +1039,25 @@ if prompt := st.chat_input("Ask about inspection insights through data"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user", avatar=USER_AVATAR):
         st.markdown(prompt)
-    
+
     # Generate assistant response
     with st.chat_message("assistant", avatar=BOT_AVATAR):
         message_placeholder = st.empty()
         full_response = ""
-        
+
         try:
             for response_chunk in generate_response(prompt):
                 full_response += response_chunk
                 message_placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
-            
+
             message_placeholder.markdown(full_response, unsafe_allow_html=True)
-            
+
         except Exception as e:
             error_msg = f"❌ Error generating response: {str(e)}"
             message_placeholder.markdown(error_msg)
             logger.error(f"Chat response error: {str(e)}")
             full_response = error_msg
-        
+
         # Add assistant response to chat history
         st.session_state.messages.append({"role": "assistant", "content": full_response})
 
