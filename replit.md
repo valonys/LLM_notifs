@@ -47,6 +47,7 @@ DigiTwin is a production-ready Retrieval-Augmented Generation (RAG) system desig
 - ✅ **Improved LLM Context Retrieval**: Enhanced comprehensive context with raw data samples, pivot analysis, and detailed guidance for natural interaction
 
 ## Future Development Priorities
+- 🔄 **Enhanced Prompt Structure**: Complete redesign of prompt architecture to enable optimal retrieval from documents and Excel files for more natural LLM interaction
 - 🔄 **Performance Optimization**: Implement advanced caching strategies for large-scale pivot analysis
 - 🔄 **Multi-Document Intelligence**: Enhance cross-document pattern recognition and insight generation
 - 🔄 **Advanced Analytics Dashboard**: Create interactive visualization for multi-FPSO trend analysis
