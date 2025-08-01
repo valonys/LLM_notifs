@@ -991,15 +991,24 @@ for i, fpso in enumerate(fpso_options):
                     st.metric("Notification Types", pivot_results.get('notification_types_count', 0))
                 with col3:
                     if selected_work_center != "All Work Centers":
-                        work_center_total = pivot_table[selected_work_center].sum() if selected_work_center in pivot_table.columns else 0
+                        if selected_work_center in pivot_table.columns:
+                            # Exclude Total row when calculating work center total
+                            work_center_data = pivot_table[selected_work_center]
+                            work_center_total = work_center_data[work_center_data.index != "Total"].sum()
+                        else:
+                            work_center_total = 0
                         st.metric(f"{selected_work_center} Total", work_center_total)
                     else:
                         st.metric("Work Centers", pivot_results.get('work_centers_count', 0))
                 
                 # Filter and display pivot table based on Work Center selection
                 if selected_work_center == "All Work Centers":
-                    # Show full table without Work Center columns (as requested)
-                    display_data = pivot_table.sum(axis=1).to_frame("Total Notifications")
+                    # Show full table without Work Center columns (exclude Total column to avoid doubling)
+                    data_section = pivot_table.iloc[:, :-1]  # Exclude "Total" column
+                    display_data = data_section.sum(axis=1).to_frame("Total Notifications")
+                    # Remove the "Total" row if it exists
+                    if "Total" in display_data.index:
+                        display_data = display_data.drop("Total", errors='ignore')
                     st.subheader("📈 Notification Types Summary")
                     st.dataframe(display_data, use_container_width=True)
                 else:
@@ -1012,10 +1021,13 @@ for i, fpso in enumerate(fpso_options):
                         
                         # Show top notification types for this work center
                         if not display_data.empty:
-                            top_notifications = display_data.nlargest(5, selected_work_center)
-                            st.subheader(f"🔝 Top 5 Notification Types in {selected_work_center}")
-                            for idx, (notif_type, count) in enumerate(top_notifications.iterrows(), 1):
-                                st.write(f"{idx}. **{notif_type}**: {count[selected_work_center]} notifications")
+                            # Filter out Total row for top calculations
+                            display_data_filtered = display_data[display_data.index != "Total"]
+                            if not display_data_filtered.empty:
+                                top_notifications = display_data_filtered.nlargest(5, selected_work_center)
+                                st.subheader(f"🔝 Top 5 Notification Types in {selected_work_center}")
+                                for idx, (notif_type, count) in enumerate(top_notifications.iterrows(), 1):
+                                    st.write(f"{idx}. **{notif_type}**: {count[selected_work_center]} notifications")
                 
                 # Key insights for this FPSO
                 stats = pivot_results.get('summary_stats', {})
