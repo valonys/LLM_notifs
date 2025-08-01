@@ -39,6 +39,9 @@ DigiTwin is a production-ready Retrieval-Augmented Generation (RAG) system desig
 - ✅ **Individual FPSO Analysis**: Each tab can create and display its own analysis independently
 - ✅ **Improved Metrics Display**: Dynamic metrics that adjust based on work center selection (totals, counts, specific center data)
 - ✅ **Clean Interface**: Removed redundant pivot creation buttons from file upload section, centralizing analysis in dashboard
+- ✅ **LDA Data Filtering**: Added preprocessing to automatically remove LDA rows from FPSO filtering for more efficient and accurate analysis
+- ✅ **Enhanced FPSO Matching**: Improved FPSO filtering with exact matching instead of contains() for better precision
+- ✅ **Consistent LDA Exclusion**: Applied LDA filtering across both data processing and RAG query systems
 
 ## Future Development Priorities
 - 🔄 **Performance Optimization**: Implement advanced caching strategies for large-scale pivot analysis

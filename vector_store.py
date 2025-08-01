@@ -422,8 +422,11 @@ class VectorStore:
                         )
                         documents.append(doc)
                     
+                    # Apply LDA preprocessing before storing
+                    df_preprocessed = self._preprocess_fpso_data(df)
+                    
                     # Store processed data for pivot operations
-                    self.processed_data = df
+                    self.processed_data = df_preprocessed
                     
                     # Add documents to all_documents for vector store
                     self.all_documents.extend(documents)
@@ -443,6 +446,31 @@ class VectorStore:
                 continue
         
         return documents
+    
+    def _preprocess_fpso_data(self, df):
+        """Preprocess DataFrame to remove LDA entries and optimize for FPSO filtering"""
+        try:
+            if 'FPSO' not in df.columns:
+                return df
+            
+            original_count = len(df)
+            
+            # Remove LDA entries to improve filtering efficiency
+            df_clean = df[~df['FPSO'].astype(str).str.contains('LDA', case=False, na=False)]
+            
+            # Also remove any rows where FPSO is empty or NaN
+            df_clean = df_clean[df_clean['FPSO'].notna()]
+            df_clean = df_clean[df_clean['FPSO'].astype(str).str.strip() != '']
+            
+            lda_removed = original_count - len(df_clean)
+            if lda_removed > 0:
+                logger.info(f"LDA preprocessing: Removed {lda_removed} LDA/empty rows for efficient FPSO analysis")
+            
+            return df_clean
+            
+        except Exception as e:
+            logger.error(f"Error in FPSO preprocessing: {str(e)}")
+            return df
     
     def _save_documents_to_db(self, documents, file_name):
         """Save processed documents to database"""
@@ -547,12 +575,22 @@ class VectorStore:
             
             logger.info(f"Cleaned data: {len(df)} -> {len(df_clean)} rows (removed empty entries)")
             
-            # Apply FPSO filter if specified
+            # Pre-process: Remove all LDA rows to improve FPSO filtering efficiency
+            if 'FPSO' in df_clean.columns:
+                original_count = len(df_clean)
+                # Remove LDA entries explicitly
+                df_clean = df_clean[~df_clean['FPSO'].astype(str).str.contains('LDA', case=False, na=False)]
+                lda_removed = original_count - len(df_clean)
+                if lda_removed > 0:
+                    logger.info(f"LDA preprocessing: Removed {lda_removed} LDA rows for efficient FPSO filtering")
+            
+            # Apply FPSO filter if specified (now LDA-free)
             if fpso_filter and fpso_filter != "All FPSOs":
                 if 'FPSO' in df_clean.columns:
                     original_count = len(df_clean)
-                    df_clean = df_clean[df_clean['FPSO'].str.contains(fpso_filter, case=False, na=False)]
-                    logger.info(f"FPSO filter applied: {original_count} -> {len(df_clean)} rows for {fpso_filter}")
+                    # Use exact match for FPSO filtering (more efficient than contains)
+                    df_clean = df_clean[df_clean['FPSO'].astype(str).str.upper().str.strip() == fpso_filter.upper().strip()]
+                    logger.info(f"FPSO filter applied: {original_count} -> {len(df_clean)} rows for {fpso_filter} (LDA-free)")
                 else:
                     logger.warning("FPSO column not found - cannot apply FPSO filter")
             
@@ -975,10 +1013,14 @@ class VectorStore:
                 logger.warning(f"Vector search failed: {str(e)}")
                 return []
             
-            # Filter results based on FPSO if specified
+            # Filter results based on FPSO if specified (with LDA exclusion)
             if fpso_filter and fpso_filter != "All FPSOs":
                 filtered_docs = []
                 for doc in docs:
+                    # Exclude LDA documents first
+                    if 'lda' in doc.page_content.lower():
+                        continue
+                    
                     # Check if document is relevant to the selected FPSO
                     if (fpso_filter.lower() in doc.page_content.lower() or 
                         doc.metadata.get('fpso_focus') == fpso_filter or
