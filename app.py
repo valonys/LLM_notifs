@@ -831,14 +831,7 @@ with st.sidebar:
         key="prompt_selector"
     )
 
-    # FPSO Selection for Analysis
-    st.subheader("🏗️ FPSO Focus")
-    fpso_options = ["All FPSOs", "GIR", "DAL", "PAZ", "CLV"]
-    selected_fpso = st.radio(
-        "Select FPSO:",
-        fpso_options,
-        key="fpso_selector"
-    )
+    # Analysis Type Selection moved up - FPSO selection moved to main canvas
 
     # Update session state if selections changed
     if selected_model != st.session_state.current_model:
@@ -849,8 +842,7 @@ with st.sidebar:
         st.session_state.current_prompt = selected_prompt
         st.session_state.model_intro_done = False
 
-    # Store FPSO selection in session state
-    st.session_state.selected_fpso = selected_fpso
+    # FPSO selection now handled in main canvas tabs
 
     st.markdown("---")
 
@@ -947,57 +939,123 @@ if uploaded_files:
                     st.success(f"✅ Processed {len(uploaded_files)} Excel files with database caching")
                     st.session_state.last_processed = f"{len(uploaded_files)} Excel files"
 
-                    # Show pivot table creation option
-                    if st.button("🔄 Create Enhanced Pivot Analysis"):
-                        with st.spinner("Creating enhanced pivot tables and vector integration..."):
-                            # Get current FPSO selection from session state
-                            fpso_filter = st.session_state.get('selected_fpso', 'All FPSOs')
-                            pivot_results = vector_store.create_notification_pivot_tables(fpso_filter=fpso_filter)
-                            if pivot_results:
-                                st.success(f"✅ **Simplified Pivot Analysis Complete** ({fpso_filter})")
-
-                                # Display main results
-                                pivot_table = pivot_results.get('pivot_table')
-                                if pivot_table is not None:
-                                    st.subheader(f"📊 Notification Types vs Work Centers")
-
-                                    # Show summary stats first
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        st.metric("Total Notifications", pivot_results.get('total_records', 0))
-                                    with col2:
-                                        st.metric("Notification Types", pivot_results.get('notification_types_count', 0))
-                                    with col3:
-                                        st.metric("Work Centers", pivot_results.get('work_centers_count', 0))
-
-                                    # Display the pivot table
-                                    st.dataframe(pivot_table, use_container_width=True)
-
-                                    # Show key insights
-                                    stats = pivot_results.get('summary_stats', {})
-                                    if stats:
-                                        st.subheader("🔍 Key Insights")
-                                        st.write(f"**Top Notification Type:** {stats.get('top_notification_type', 'N/A')}")
-                                        st.write(f"**Busiest Work Center:** {stats.get('top_work_center', 'N/A')}")
-                                        st.write(f"**Grand Total:** {stats.get('total_notifications', 0)} notifications")
-
-                                # Store for session state
-                                st.session_state.pivot_results = pivot_results
-
-                                # Enhanced RAG ready message
-                                st.info(f"🧠 **Enhanced RAG Ready**: Ask questions about {fpso_filter} analysis. The chat agents now understand:")
-                                st.write("- 📊 Notification type patterns by work center")
-                                st.write("- 🏗️ FPSO-specific operational insights")
-                                st.write("- 🔍 Cross-referenced pivot analysis data")
-                                st.write("- 📈 Detailed breakdown of top combinations")
-                            else:
-                                st.warning("⚠️ No pivot analysis could be created. Check if data contains required columns: 'Notifictn type' and 'Main WorkCtr'")
+                    st.info("📊 **Excel files processed successfully!** Use the Enhanced Pivot Analysis Dashboard above to create and view detailed analysis.")
                 else:
                     st.warning("⚠️ No documents processed from Excel files")
 
     except Exception as e:
         st.error(f"❌ Error processing files: {str(e)}")
         logger.error(f"File processing error: {str(e)}")
+
+# --- ENHANCED PIVOT TABLE INTERFACE ---
+st.header("📊 Enhanced Pivot Analysis Dashboard")
+
+# FPSO Selection as Tabs in Main Canvas
+fpso_options = ["All FPSOs", "GIR", "DAL", "PAZ", "CLV"]
+fpso_tabs = st.tabs(fpso_options)
+
+# Initialize session state for FPSO and Work Center selections
+if 'selected_fpso' not in st.session_state:
+    st.session_state.selected_fpso = "All FPSOs"
+if 'selected_work_center' not in st.session_state:
+    st.session_state.selected_work_center = "All Work Centers"
+
+# Handle each FPSO tab
+for i, fpso in enumerate(fpso_options):
+    with fpso_tabs[i]:
+        # Update session state based on active tab
+        st.session_state.selected_fpso = fpso
+        
+        st.subheader(f"🏗️ {fpso} Analysis Dashboard")
+        
+        # Check if we have pivot results for this FPSO
+        pivot_results = st.session_state.get('pivot_results')
+        if pivot_results and pivot_results.get('fpso_filter') == fpso:
+            pivot_table = pivot_results.get('pivot_table')
+            if pivot_table is not None:
+                # Work Center Dropdown Menu
+                work_centers = ["All Work Centers"] + list(pivot_table.columns[:-1])  # Exclude 'Total' column
+                selected_work_center = st.selectbox(
+                    "🔧 Select Work Center:",
+                    options=work_centers,
+                    key=f"work_center_{fpso}",
+                    index=0
+                )
+                st.session_state.selected_work_center = selected_work_center
+                
+                # Display metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Notifications", pivot_results.get('total_records', 0))
+                with col2:
+                    st.metric("Notification Types", pivot_results.get('notification_types_count', 0))
+                with col3:
+                    if selected_work_center != "All Work Centers":
+                        work_center_total = pivot_table[selected_work_center].sum() if selected_work_center in pivot_table.columns else 0
+                        st.metric(f"{selected_work_center} Total", work_center_total)
+                    else:
+                        st.metric("Work Centers", pivot_results.get('work_centers_count', 0))
+                
+                # Filter and display pivot table based on Work Center selection
+                if selected_work_center == "All Work Centers":
+                    # Show full table without Work Center columns (as requested)
+                    display_data = pivot_table.sum(axis=1).to_frame("Total Notifications")
+                    st.subheader("📈 Notification Types Summary")
+                    st.dataframe(display_data, use_container_width=True)
+                else:
+                    # Show only selected work center data
+                    if selected_work_center in pivot_table.columns:
+                        display_data = pivot_table[[selected_work_center]].copy()
+                        display_data = display_data[display_data[selected_work_center] > 0]  # Filter out zero values
+                        st.subheader(f"📈 {selected_work_center} - Notification Types")
+                        st.dataframe(display_data, use_container_width=True)
+                        
+                        # Show top notification types for this work center
+                        if not display_data.empty:
+                            top_notifications = display_data.nlargest(5, selected_work_center)
+                            st.subheader(f"🔝 Top 5 Notification Types in {selected_work_center}")
+                            for idx, (notif_type, count) in enumerate(top_notifications.iterrows(), 1):
+                                st.write(f"{idx}. **{notif_type}**: {count[selected_work_center]} notifications")
+                
+                # Key insights for this FPSO
+                stats = pivot_results.get('summary_stats', {})
+                if stats:
+                    st.subheader("🔍 Key Insights")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.info(f"**Top Notification Type:** {stats.get('top_notification_type', 'N/A')}")
+                    with col2:
+                        st.info(f"**Busiest Work Center:** {stats.get('top_work_center', 'N/A')}")
+            else:
+                st.info(f"📊 No pivot analysis available for {fpso}. Upload Excel files and create pivot analysis to see data here.")
+                
+                # Show create analysis button for this FPSO
+                if st.button(f"🔄 Create {fpso} Analysis", key=f"create_{fpso}"):
+                    with st.spinner(f"Creating pivot analysis for {fpso}..."):
+                        if vector_store:
+                            pivot_results = vector_store.create_notification_pivot_tables(fpso_filter=fpso)
+                            if pivot_results:
+                                st.session_state.pivot_results = pivot_results
+                                st.success(f"✅ Analysis complete for {fpso}!")
+                                st.rerun()
+                            else:
+                                st.warning("❌ Could not create analysis. Please ensure Excel files are uploaded with required columns.")
+        else:
+            st.info(f"📊 No pivot analysis available for {fpso}. Upload Excel files and create pivot analysis to see data here.")
+            
+            # Show create analysis button for this FPSO
+            if st.button(f"🔄 Create {fpso} Analysis", key=f"create_{fpso}_alt"):
+                with st.spinner(f"Creating pivot analysis for {fpso}..."):
+                    if vector_store:
+                        pivot_results = vector_store.create_notification_pivot_tables(fpso_filter=fpso)
+                        if pivot_results:
+                            st.session_state.pivot_results = pivot_results
+                            st.success(f"✅ Analysis complete for {fpso}!")
+                            st.rerun()
+                        else:
+                            st.warning("❌ Could not create analysis. Please ensure Excel files are uploaded with required columns.")
+
+st.markdown("---")
 
 # --- CHAT INTERFACE ---
 st.header("💬 Industrial Analysis Chat")

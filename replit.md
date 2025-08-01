@@ -30,6 +30,16 @@ DigiTwin is a production-ready Retrieval-Augmented Generation (RAG) system desig
 - ✅ **Clean Data Processing**: Enhanced data cleaning to remove empty rows and focus on quality analytical insights
 - ✅ **Top Combinations Analysis**: Detailed breakdown of highest-performing notification type and work center combinations
 
+## Major UI Improvements (August 1, 2025)
+- ✅ **Enhanced Pivot Dashboard**: Moved FPSO selection from sidebar radio buttons to main canvas tabs for better accessibility
+- ✅ **Work Center Dropdown**: Converted Main Work Center from table columns to interactive dropdown menu for focused analysis
+- ✅ **Tabbed FPSO Interface**: Implemented dedicated tabs for each FPSO (All, GIR, DAL, PAZ, CLV) with individual analysis dashboards
+- ✅ **Filtered Data Display**: Pivot tables now show focused views based on selected work center, removing clutter from main display
+- ✅ **Top Performer Analytics**: Added top 5 notification types breakdown for each selected work center
+- ✅ **Individual FPSO Analysis**: Each tab can create and display its own analysis independently
+- ✅ **Improved Metrics Display**: Dynamic metrics that adjust based on work center selection (totals, counts, specific center data)
+- ✅ **Clean Interface**: Removed redundant pivot creation buttons from file upload section, centralizing analysis in dashboard
+
 ## Future Development Priorities
 - 🔄 **Performance Optimization**: Implement advanced caching strategies for large-scale pivot analysis
 - 🔄 **Multi-Document Intelligence**: Enhance cross-document pattern recognition and insight generation
