@@ -479,18 +479,30 @@ class VectorStore:
         
         try:
             with self.db_manager.engine.connect() as conn:
+                # Store actual file data for caching
+                try:
+                    if hasattr(documents[0], 'metadata') and 'source' in documents[0].metadata:
+                        # Try to get file size from metadata
+                        file_size = documents[0].metadata.get('chunk_size', len(documents))
+                    else:
+                        file_size = len(documents)
+                except:
+                    file_size = len(documents)
+                
                 # Ensure file exists in uploaded_files table first
                 conn.execute(text("""
                 INSERT INTO uploaded_files (file_name, file_type, file_data, upload_date, file_size, checksum)
                 VALUES (:file_name, :file_type, :file_data, :upload_date, :file_size, :checksum)
-                ON CONFLICT (file_name) DO NOTHING
+                ON CONFLICT (file_name) DO UPDATE SET
+                    upload_date = :upload_date,
+                    file_size = :file_size
                 """), {
                     'file_name': file_name,
                     'file_type': 'excel',
-                    'file_data': b'',  # Empty for now
+                    'file_data': f"cached_{len(documents)}_chunks".encode(),
                     'upload_date': datetime.now(),
-                    'file_size': 0,
-                    'checksum': 'placeholder'
+                    'file_size': file_size,
+                    'checksum': f"checksum_{len(documents)}"
                 })
                 
                 # Clear existing documents for this file
@@ -500,6 +512,11 @@ class VectorStore:
                 
                 # Insert new documents
                 for i, doc in enumerate(documents):
+                    try:
+                        metadata_str = json.dumps(doc.metadata) if isinstance(doc.metadata, dict) else str(doc.metadata)
+                    except (TypeError, ValueError):
+                        metadata_str = json.dumps({})
+                        
                     conn.execute(text("""
                     INSERT INTO processed_documents (file_name, chunk_id, content, metadata)
                     VALUES (:file_name, :chunk_id, :content, :metadata)
@@ -507,7 +524,7 @@ class VectorStore:
                         'file_name': file_name,
                         'chunk_id': i,
                         'content': doc.page_content,
-                        'metadata': json.dumps(doc.metadata)
+                        'metadata': metadata_str
                     })
                 
                 conn.commit()
@@ -1059,39 +1076,122 @@ class VectorStore:
             return []
     
     def get_comprehensive_context(self, query, fpso_filter=None):
-        """Get comprehensive context combining RAG results with current analysis state"""
+        """Get comprehensive context combining RAG results with raw data for natural LLM interaction"""
         try:
             context_parts = []
             
-            # Get RAG results
-            rag_docs = self.query_multi_report_rag(query, fpso_filter, k=5)
+            # 1. Enhanced RAG results with more content
+            rag_docs = self.query_multi_report_rag(query, fpso_filter, k=8)
             if rag_docs:
-                context_parts.append("=== RELEVANT DATA AND ANALYSIS ===")
-                for i, doc in enumerate(rag_docs[:3], 1):
+                context_parts.append("=== RELEVANT DOCUMENTS AND ANALYSIS ===")
+                for i, doc in enumerate(rag_docs[:5], 1):
                     source_info = doc.metadata.get('source', 'Unknown')
-                    context_parts.append(f"\nSource {i} ({source_info}):")
-                    context_parts.append(doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content)
+                    doc_type = doc.metadata.get('type', 'document')
+                    
+                    # Show more content for better understanding
+                    content = doc.page_content
+                    if len(content) > 1000:
+                        content = content[:1000] + "..."
+                    
+                    context_parts.append(f"\n--- Document {i}: {source_info} ({doc_type}) ---")
+                    context_parts.append(content)
             
-            # Add current FPSO context
+            # 2. Raw data sample for natural interaction
+            if hasattr(self, 'processed_data') and self.processed_data is not None:
+                try:
+                    df = self.processed_data.copy()
+                    
+                    # Apply FPSO filter if specified
+                    if fpso_filter and fpso_filter != "All FPSOs" and 'FPSO' in df.columns:
+                        df = df[df['FPSO'].astype(str).str.upper().str.strip() == fpso_filter.upper().strip()]
+                    
+                    if not df.empty:
+                        context_parts.append("\n=== ACTUAL DATA SAMPLE ===")
+                        context_parts.append(f"Dataset: {len(df)} rows × {len(df.columns)} columns")
+                        context_parts.append(f"Columns: {list(df.columns)}")
+                        
+                        # Show representative data rows
+                        sample_size = min(8, len(df))
+                        context_parts.append(f"\nData Sample ({sample_size} rows):")
+                        for idx, (_, row) in enumerate(df.head(sample_size).iterrows()):
+                            row_data = []
+                            for col, val in row.items():
+                                if pd.notna(val) and str(val).strip():
+                                    row_data.append(f"{col}: {val}")
+                            if row_data:
+                                context_parts.append(f"  {idx+1}. {' | '.join(row_data[:8])}")
+                        
+                        # Add column statistics
+                        if 'Notifictn type' in df.columns:
+                            notif_counts = df['Notifictn type'].value_counts()
+                            context_parts.append(f"\nNotification types: {dict(notif_counts.head())}")
+                        
+                        if 'Main WorkCtr' in df.columns:
+                            wc_counts = df['Main WorkCtr'].value_counts()
+                            context_parts.append(f"Work centers: {dict(wc_counts.head())}")
+                        
+                except Exception as e:
+                    logger.warning(f"Raw data context failed: {str(e)}")
+            
+            # 3. Current analysis state and pivot insights
             if fpso_filter and fpso_filter != "All FPSOs":
-                context_parts.append(f"\n=== CURRENT ANALYSIS FOCUS ===")
-                context_parts.append(f"FPSO: {fpso_filter}")
-                context_parts.append("Analysis is specifically focused on this FPSO's operations.")
+                context_parts.append(f"\n=== ANALYSIS FOCUS ===")
+                context_parts.append(f"Current FPSO filter: {fpso_filter}")
+                context_parts.append("All analysis should be specific to this FPSO unless otherwise requested.")
             
-            # Add data summary if available
-            if self.processed_data is not None:
-                summary = self.get_notification_summary()
-                if summary:
-                    context_parts.append("\n=== DATA OVERVIEW ===")
-                    context_parts.append(f"Total notifications: {summary.get('total_notifications', 'Unknown')}")
-                    if summary.get('fpso_distribution'):
-                        context_parts.append(f"FPSO distribution: {summary['fpso_distribution']}")
+            # 4. Generate pivot analysis if query suggests data analysis
+            analysis_keywords = ['notification', 'data', 'analysis', 'pivot', 'summary', 'count', 'total', 'fpso', 'work center']
+            if any(keyword in query.lower() for keyword in analysis_keywords):
+                try:
+                    pivot_results = self.create_notification_pivot_tables(fpso_filter)
+                    if pivot_results:
+                        context_parts.append("\n=== CURRENT PIVOT ANALYSIS ===")
+                        context_parts.append(f"Analysis scope: {pivot_results.get('fpso_filter', 'All FPSOs')}")
+                        context_parts.append(f"Total records: {pivot_results.get('total_records', 0)}")
+                        
+                        # Include actual pivot data
+                        pivot_table = pivot_results.get('pivot_table')
+                        if pivot_table is not None:
+                            # Show top notification type and work center combinations
+                            data_section = pivot_table.iloc[:-1, :-1]  # Exclude totals
+                            top_combinations = []
+                            for notif_type in data_section.index:
+                                for work_center in data_section.columns:
+                                    count = data_section.loc[notif_type, work_center]
+                                    if count > 0:
+                                        top_combinations.append((notif_type, work_center, count))
+                            
+                            top_combinations.sort(key=lambda x: x[2], reverse=True)
+                            if top_combinations:
+                                context_parts.append("\nTop notification combinations:")
+                                for i, (notif, wc, count) in enumerate(top_combinations[:10], 1):
+                                    context_parts.append(f"  {i}. {notif} at {wc}: {count} notifications")
+                        
+                        stats = pivot_results.get('summary_stats', {})
+                        if stats:
+                            context_parts.append(f"\nSummary statistics:")
+                            context_parts.append(f"  Most common notification: {stats.get('top_notification_type', 'N/A')}")
+                            context_parts.append(f"  Busiest work center: {stats.get('top_work_center', 'N/A')}")
+                            context_parts.append(f"  Total notifications: {stats.get('total_notifications', 0)}")
+                            
+                except Exception as e:
+                    logger.warning(f"Pivot analysis context failed: {str(e)}")
             
-            return "\n".join(context_parts)
+            # 5. Add guidance for LLM response
+            if context_parts:
+                context_parts.append(f"\n=== QUERY GUIDANCE ===")
+                context_parts.append(f"User query: '{query}'")
+                if fpso_filter and fpso_filter != "All FPSOs":
+                    context_parts.append(f"Focus area: {fpso_filter} FPSO operations")
+                context_parts.append("Please provide detailed, data-driven analysis based on the actual data above.")
+                context_parts.append("Reference specific numbers, notification types, work centers, and patterns when answering.")
+            
+            final_context = "\n".join(context_parts)
+            return final_context if context_parts else "No relevant context available"
             
         except Exception as e:
             logger.error(f"Error getting comprehensive context: {str(e)}")
-            return "Context retrieval failed"
+            return f"Context retrieval error: {str(e)}"
     
     def get_notification_summary(self):
         """Get comprehensive summary of notification data"""
@@ -1197,16 +1297,45 @@ class VectorStore:
                 documents = []
                 for doc_row in doc_result:
                     content = doc_row[0]
-                    metadata = json.loads(doc_row[1]) if doc_row[1] else {}
+                    try:
+                        # Handle both string and dict metadata
+                        if isinstance(doc_row[1], str):
+                            metadata = json.loads(doc_row[1]) if doc_row[1] else {}
+                        elif isinstance(doc_row[1], dict):
+                            metadata = doc_row[1]
+                        else:
+                            metadata = {}
+                    except (json.JSONDecodeError, TypeError):
+                        metadata = {}
+                    
                     documents.append({
                         'content': content,
                         'metadata': metadata
                     })
                 
+                # Restore documents to vector store format
+                restored_docs = []
+                for doc_info in documents:
+                    doc = LCDocument(
+                        page_content=doc_info['content'],
+                        metadata=doc_info['metadata']
+                    )
+                    restored_docs.append(doc)
+                
+                # Update internal state
+                self.all_documents.extend(restored_docs)
+                self.current_file_name = filename
+                
+                # Create enhanced vector store with restored documents
+                self.create_enhanced_vector_store()
+                
+                logger.info(f"Successfully loaded {len(restored_docs)} documents from cached file: {filename}")
+                
                 return {
                     'file_data': file_data,
                     'file_type': file_type,
-                    'documents': documents
+                    'documents': restored_docs,
+                    'status': 'loaded'  
                 }
                 
         except Exception as e:

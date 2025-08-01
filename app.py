@@ -880,12 +880,16 @@ with st.sidebar:
                 if st.button("📂 Load Selected File", key="load_cached_btn"):
                     with st.spinner(f"Loading {selected_cached_file}..."):
                         cached_data = vector_store.load_cached_file(selected_cached_file)
-                        if cached_data:
-                            st.success(f"✅ Loaded {selected_cached_file}")
+                        if cached_data and cached_data.get('status') == 'loaded':
+                            st.success(f"✅ Loaded {selected_cached_file} with {len(cached_data.get('documents', []))} documents")
                             st.session_state['cached_file_loaded'] = selected_cached_file
-                            st.session_state['cached_file_loaded'] = selected_cached_file
+                            st.session_state['last_processed'] = f"Cached: {selected_cached_file}"
+                            # Clear any existing pivot results to refresh with cached data
+                            if 'pivot_results' in st.session_state:
+                                del st.session_state['pivot_results'] 
+                            st.rerun()
                         else:
-                            st.error("❌ Failed to load file")
+                            st.error("❌ Failed to load cached file. Please try re-uploading the file.")
         else:
             st.info("No cached files available")
     except Exception as e:
