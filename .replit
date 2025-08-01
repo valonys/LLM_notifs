@@ -18,28 +18,15 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "DigiTwin RAG Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "DigiTwin RAG App"
+args = "DigiTwin RAG"
 
 [[workflows.workflow]]
-name = "DigiTwin RAG Server"
+name = "DigiTwin RAG"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "streamlit run app.py --server.port 5000"
-waitForPort = 5000
-
-[[workflows.workflow]]
-name = "DigiTwin RAG App"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "streamlit run app.py --server.port 5000 --server.address 0.0.0.0"
+args = "streamlit run app.py --server.port 5000 --server.address 0.0.0.0 --server.headless true"
 waitForPort = 5000
 
 [[ports]]
