@@ -428,6 +428,25 @@ class VectorStore:
                     # Store processed data for pivot operations
                     self.processed_data = df_preprocessed
                     
+                    # Create a special document with raw DataFrame data for caching restoration
+                    try:
+                        # Convert DataFrame to JSON for storage
+                        df_json = df_preprocessed.to_json(orient='records')
+                        raw_data_doc = LCDocument(
+                            page_content=f"Raw Excel data from {file_name} with {len(df_preprocessed)} rows",
+                            metadata={
+                                "source": file_name,
+                                "type": "raw_data",
+                                "dataframe_json": df_json,
+                                "columns": list(df_preprocessed.columns),
+                                "total_rows": len(df_preprocessed),
+                                "file_type": "excel"
+                            }
+                        )
+                        documents.append(raw_data_doc)
+                    except Exception as e:
+                        logger.warning(f"Could not create raw data document: {str(e)}")
+                    
                     # Add documents to all_documents for vector store
                     self.all_documents.extend(documents)
                     
@@ -1326,6 +1345,41 @@ class VectorStore:
                 self.all_documents.extend(restored_docs)
                 self.current_file_name = filename
                 
+                # Restore processed_data from documents metadata for Excel files
+                if filename.endswith(('.xlsx', '.xls')):
+                    try:
+                        # Look for processed data in document metadata
+                        for doc in restored_docs:
+                            if doc.metadata.get('type') == 'raw_data' and 'dataframe_json' in doc.metadata:
+                                try:
+                                    df_json = doc.metadata['dataframe_json']
+                                    if isinstance(df_json, str):
+                                        import json
+                                        df_records = json.loads(df_json)
+                                        self.processed_data = pd.DataFrame(df_records)
+                                    elif isinstance(df_json, list):
+                                        self.processed_data = pd.DataFrame(df_json)
+                                    elif isinstance(df_json, dict):
+                                        self.processed_data = pd.DataFrame(df_json)
+                                    
+                                    # Apply LDA preprocessing to restored data
+                                    self.processed_data = self._preprocess_fpso_data(self.processed_data)
+                                    logger.info(f"Restored processed_data with {len(self.processed_data)} rows from cached file")
+                                    break
+                                except Exception as df_error:
+                                    logger.warning(f"Failed to restore DataFrame from metadata: {str(df_error)}")
+                                    continue
+                        
+                        # If no dataframe found in metadata, try to recreate from raw data
+                        if self.processed_data is None:
+                            # Try to find a document with Excel content
+                            for doc in restored_docs:
+                                if 'excel_data' in doc.metadata:
+                                    # This would be a backup approach
+                                    pass
+                    except Exception as e:
+                        logger.warning(f"Could not restore processed_data from cache: {str(e)}")
+                
                 # Create enhanced vector store with restored documents
                 self.create_enhanced_vector_store()
                 
@@ -1335,7 +1389,8 @@ class VectorStore:
                     'file_data': file_data,
                     'file_type': file_type,
                     'documents': restored_docs,
-                    'status': 'loaded'  
+                    'status': 'loaded',
+                    'has_processed_data': self.processed_data is not None
                 }
                 
         except Exception as e:

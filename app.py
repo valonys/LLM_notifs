@@ -881,12 +881,25 @@ with st.sidebar:
                     with st.spinner(f"Loading {selected_cached_file}..."):
                         cached_data = vector_store.load_cached_file(selected_cached_file)
                         if cached_data and cached_data.get('status') == 'loaded':
-                            st.success(f"✅ Loaded {selected_cached_file} with {len(cached_data.get('documents', []))} documents")
+                            docs_count = len(cached_data.get('documents', []))
+                            has_data = cached_data.get('has_processed_data', False)
+                            
+                            if has_data:
+                                st.success(f"✅ Loaded {selected_cached_file} with {docs_count} documents and data for analysis")
+                            else:
+                                st.success(f"✅ Loaded {selected_cached_file} with {docs_count} documents")
+                                
                             st.session_state['cached_file_loaded'] = selected_cached_file
                             st.session_state['last_processed'] = f"Cached: {selected_cached_file}"
+                            
                             # Clear any existing pivot results to refresh with cached data
                             if 'pivot_results' in st.session_state:
                                 del st.session_state['pivot_results'] 
+                            
+                            # Set vectorstore for compatibility with chat interface
+                            if hasattr(vector_store, 'vector_store') and vector_store.vector_store:
+                                st.session_state.vectorstore = vector_store.vector_store
+                                
                             st.rerun()
                         else:
                             st.error("❌ Failed to load cached file. Please try re-uploading the file.")
