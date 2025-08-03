@@ -430,8 +430,28 @@ class VectorStore:
                     
                     # Create a special document with raw DataFrame data for caching restoration
                     try:
-                        # Convert DataFrame to JSON for storage
-                        df_json = df_preprocessed.to_json(orient='records')
+                        # For large DataFrames, store only essential columns and limit rows
+                        if len(df_preprocessed) > 10000:
+                            # Store only first 10k rows for caching
+                            df_sample = df_preprocessed.head(10000)
+                            logger.info(f"Large dataset detected, storing first 10,000 rows for caching")
+                        else:
+                            df_sample = df_preprocessed
+                        
+                        # Convert DataFrame to JSON with compression
+                        df_json = df_sample.to_json(orient='records', date_format='iso')
+                        
+                        # Verify JSON size isn't too large (limit to ~1MB)
+                        if len(df_json) > 1000000:
+                            # If still too large, store summary info only
+                            summary_data = {
+                                'columns': list(df_preprocessed.columns),
+                                'shape': df_preprocessed.shape,
+                                'sample_data': df_preprocessed.head(100).to_dict('records')
+                            }
+                            df_json = json.dumps(summary_data)
+                            logger.warning(f"DataFrame too large for full caching, storing summary only")
+                        
                         raw_data_doc = LCDocument(
                             page_content=f"Raw Excel data from {file_name} with {len(df_preprocessed)} rows",
                             metadata={
@@ -440,12 +460,16 @@ class VectorStore:
                                 "dataframe_json": df_json,
                                 "columns": list(df_preprocessed.columns),
                                 "total_rows": len(df_preprocessed),
-                                "file_type": "excel"
+                                "file_type": "excel",
+                                "is_sample": len(df_preprocessed) > 10000
                             }
                         )
                         documents.append(raw_data_doc)
+                        logger.info(f"Created raw data document for caching with {len(df_preprocessed)} total rows")
+                        
                     except Exception as e:
                         logger.warning(f"Could not create raw data document: {str(e)}")
+                        # Continue without raw data caching if it fails
                     
                     # Add documents to all_documents for vector store
                     self.all_documents.extend(documents)
