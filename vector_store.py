@@ -351,6 +351,9 @@ class VectorStore:
         self.current_file_name = None
         self.vector_store = None  # FAISS or other vector store
         self.all_documents = []  # Keep track of all documents for multi-report RAG
+        
+        # Try to auto-load existing dataset
+        self._auto_load_dataset()
     
     def process_excel_to_documents(self, uploaded_files, target_columns=None):
         """
@@ -489,6 +492,73 @@ class VectorStore:
                 continue
         
         return documents
+    
+    def _auto_load_dataset(self):
+        """Automatically load the most recent cached dataset on startup"""
+        try:
+            if not self.db_manager or not self.db_manager.engine:
+                return
+            
+            with self.db_manager.engine.connect() as conn:
+                # Get the most recent Excel file
+                result = conn.execute(text("""
+                SELECT file_name FROM uploaded_files 
+                WHERE file_type = 'excel' AND file_name LIKE '%.xlsx'
+                ORDER BY upload_date DESC
+                LIMIT 1
+                """))
+                
+                row = result.fetchone()
+                if row:
+                    latest_file = row[0]
+                    logger.info(f"Auto-loading latest dataset: {latest_file}")
+                    
+                    # Load the cached file by creating documents and restoring state
+                    doc_result = conn.execute(text("""
+                    SELECT content, metadata FROM processed_documents 
+                    WHERE file_name = :filename
+                    ORDER BY chunk_id
+                    """), {'filename': latest_file})
+                    
+                    restored_docs = []
+                    for doc_row in doc_result:
+                        content = doc_row[0]
+                        try:
+                            if isinstance(doc_row[1], str):
+                                metadata = json.loads(doc_row[1]) if doc_row[1] else {}
+                            elif isinstance(doc_row[1], dict):
+                                metadata = doc_row[1]
+                            else:
+                                metadata = {}
+                        except (json.JSONDecodeError, TypeError):
+                            metadata = {}
+                        
+                        doc = LCDocument(page_content=content, metadata=metadata)
+                        restored_docs.append(doc)
+                        
+                        # Restore DataFrame from raw_data documents
+                        if metadata.get('type') == 'raw_data' and 'dataframe_json' in metadata:
+                            try:
+                                df_json = metadata['dataframe_json']
+                                if isinstance(df_json, str):
+                                    df_records = json.loads(df_json)
+                                    self.processed_data = pd.DataFrame(df_records)
+                                    self.processed_data = self._preprocess_fpso_data(self.processed_data)
+                                    self.current_file_name = latest_file
+                                    logger.info(f"Restored processed_data with {len(self.processed_data)} rows from auto-load")
+                            except Exception as df_error:
+                                logger.warning(f"Failed to restore DataFrame in auto-load: {str(df_error)}")
+                    
+                    if restored_docs:
+                        self.all_documents.extend(restored_docs)
+                        self.create_enhanced_vector_store()
+                        logger.info(f"Successfully auto-loaded {latest_file} with {len(restored_docs)} documents")
+                        return True
+                    
+        except Exception as e:
+            logger.warning(f"Auto-load dataset failed: {str(e)}")
+        
+        return False
     
     def _preprocess_fpso_data(self, df):
         """Preprocess DataFrame to remove LDA entries and optimize for FPSO filtering"""

@@ -909,9 +909,15 @@ with st.sidebar:
         logger.error(f"Error accessing cached files: {str(e)}")
         st.warning("Cache unavailable")
 
-# Display current model status
+# Display current model status and dataset info
 if st.session_state.current_model:
     st.info(f"🤖 **Active Model**: {st.session_state.current_model}")
+
+# Check if dataset is available from auto-loading
+if hasattr(vector_store, 'processed_data') and vector_store.processed_data is not None:
+    if not st.session_state.get('last_processed'):
+        st.session_state.last_processed = f"Auto-loaded: {vector_store.current_file_name}"
+    st.success(f"📊 **Dataset Ready**: {len(vector_store.processed_data)} records loaded for analysis")
 
 # Process uploaded files from sidebar
 if uploaded_files:

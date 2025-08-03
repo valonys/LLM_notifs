@@ -46,6 +46,7 @@ DigiTwin is a production-ready Retrieval-Augmented Generation (RAG) system desig
 - ✅ **Enhanced Caching System**: Fixed cached file loading with proper JSON handling and complete state restoration
 - ✅ **Improved LLM Context Retrieval**: Enhanced comprehensive context with raw data samples, pivot analysis, and detailed guidance for natural interaction
 - ✅ **DataFrame Persistence**: Added raw DataFrame storage and restoration for cached Excel files to enable pivot analysis after loading
+- ✅ **Auto-Loading Dataset**: System now automatically loads the most recent Excel dataset on startup, eliminating need for repeated uploads
 
 ## Future Development Priorities
 - 🔄 **Enhanced Prompt Structure**: Complete redesign of prompt architecture to enable optimal retrieval from documents and Excel files for more natural LLM interaction
