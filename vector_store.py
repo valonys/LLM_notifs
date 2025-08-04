@@ -473,11 +473,11 @@ class VectorStore:
                 return
             
             with self.db_manager.engine.connect() as conn:
-                # Get the most recent Excel file
+                # Get the file with the largest cached DataFrame (most complete data)
                 result = conn.execute(text("""
-                SELECT file_name FROM uploaded_files 
-                WHERE file_type = 'excel' AND file_name LIKE '%.xlsx'
-                ORDER BY upload_date DESC
+                SELECT file_name FROM cached_dataframes 
+                WHERE file_name LIKE '%.xlsx'
+                ORDER BY row_count DESC, updated_at DESC
                 LIMIT 1
                 """))
                 
@@ -531,12 +531,15 @@ class VectorStore:
                             except Exception as df_error:
                                 logger.warning(f"Failed to restore DataFrame in auto-load: {str(df_error)}")
                     
-                    # Try to load DataFrame from dedicated cache table
+                    # Always try to load DataFrame from dedicated cache table first
                     cached_df = self._load_dataframe_from_cache(latest_file)
                     if cached_df is not None:
                         self.processed_data = cached_df
                         self.original_df = cached_df.copy()
                         self.current_file_name = latest_file
+                        logger.info(f"Successfully restored DataFrame from cache: {len(self.processed_data)} rows for {latest_file}")
+                    else:
+                        logger.warning(f"No cached DataFrame found for {latest_file}")
                         
                     if restored_docs:
                         self.all_documents.extend(restored_docs)
