@@ -606,8 +606,16 @@ class VectorStore:
                 
                 row = result.fetchone()
                 if row:
-                    # Restore DataFrame from JSON
-                    df_data = json.loads(row[0])
+                    # Restore DataFrame from JSON - handle different data types
+                    df_data_raw = row[0]
+                    if isinstance(df_data_raw, str):
+                        df_data = json.loads(df_data_raw)
+                    elif isinstance(df_data_raw, list):
+                        df_data = df_data_raw
+                    else:
+                        # If it's already a dict/object, use directly
+                        df_data = df_data_raw
+                    
                     df = pd.DataFrame(df_data)
                     
                     # Apply preprocessing
