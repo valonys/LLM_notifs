@@ -914,10 +914,17 @@ if st.session_state.current_model:
     st.info(f"🤖 **Active Model**: {st.session_state.current_model}")
 
 # Check if dataset is available from auto-loading
-if hasattr(vector_store, 'processed_data') and vector_store.processed_data is not None:
+if hasattr(vector_store, 'processed_data') and vector_store.processed_data is not None and len(vector_store.processed_data) > 0:
     if not st.session_state.get('last_processed'):
         st.session_state.last_processed = f"Auto-loaded: {vector_store.current_file_name}"
     st.success(f"📊 **Dataset Ready**: {len(vector_store.processed_data)} records loaded for analysis")
+elif hasattr(vector_store, 'current_file_name') and vector_store.current_file_name:
+    st.info(f"📂 **File Loaded**: {vector_store.current_file_name} - Processing dataset...")
+    # Try to trigger dataset restoration
+    if hasattr(vector_store, '_auto_load_dataset'):
+        with st.spinner("Restoring dataset..."):
+            if vector_store._auto_load_dataset():
+                st.rerun()
 
 # Process uploaded files from sidebar
 if uploaded_files:

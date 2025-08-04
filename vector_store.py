@@ -431,48 +431,21 @@ class VectorStore:
                     # Store processed data for pivot operations
                     self.processed_data = df_preprocessed
                     
-                    # Create a special document with raw DataFrame data for caching restoration
+                    # Store DataFrame directly in dedicated table for reliable caching
                     try:
-                        # For large DataFrames, store only essential columns and limit rows
-                        if len(df_preprocessed) > 10000:
-                            # Store only first 10k rows for caching
-                            df_sample = df_preprocessed.head(10000)
-                            logger.info(f"Large dataset detected, storing first 10,000 rows for caching")
+                        # Prepare DataFrame for storage - use only essential data for large datasets
+                        if len(df_preprocessed) > 50000:
+                            # For very large datasets, store a representative sample
+                            df_to_store = df_preprocessed.sample(n=50000, random_state=42)
+                            logger.info(f"Large dataset: storing 50k sample rows from {len(df_preprocessed)} total")
                         else:
-                            df_sample = df_preprocessed
+                            df_to_store = df_preprocessed
                         
-                        # Convert DataFrame to JSON with compression
-                        df_json = df_sample.to_json(orient='records', date_format='iso')
-                        
-                        # Verify JSON size isn't too large (limit to ~1MB)
-                        if len(df_json) > 1000000:
-                            # If still too large, store summary info only
-                            summary_data = {
-                                'columns': list(df_preprocessed.columns),
-                                'shape': df_preprocessed.shape,
-                                'sample_data': df_preprocessed.head(100).to_dict('records')
-                            }
-                            df_json = json.dumps(summary_data)
-                            logger.warning(f"DataFrame too large for full caching, storing summary only")
-                        
-                        raw_data_doc = LCDocument(
-                            page_content=f"Raw Excel data from {file_name} with {len(df_preprocessed)} rows",
-                            metadata={
-                                "source": file_name,
-                                "type": "raw_data",
-                                "dataframe_json": df_json,
-                                "columns": list(df_preprocessed.columns),
-                                "total_rows": len(df_preprocessed),
-                                "file_type": "excel",
-                                "is_sample": len(df_preprocessed) > 10000
-                            }
-                        )
-                        documents.append(raw_data_doc)
-                        logger.info(f"Created raw data document for caching with {len(df_preprocessed)} total rows")
+                        # Store DataFrame in dedicated table
+                        self._store_dataframe_in_cache(file_name, df_to_store, len(df_preprocessed))
                         
                     except Exception as e:
-                        logger.warning(f"Could not create raw data document: {str(e)}")
-                        # Continue without raw data caching if it fails
+                        logger.warning(f"Could not cache DataFrame: {str(e)}")
                     
                     # Add documents to all_documents for vector store
                     self.all_documents.extend(documents)
@@ -542,23 +515,113 @@ class VectorStore:
                                 df_json = metadata['dataframe_json']
                                 if isinstance(df_json, str):
                                     df_records = json.loads(df_json)
-                                    self.processed_data = pd.DataFrame(df_records)
-                                    self.processed_data = self._preprocess_fpso_data(self.processed_data)
-                                    self.current_file_name = latest_file
-                                    logger.info(f"Restored processed_data with {len(self.processed_data)} rows from auto-load")
+                                elif isinstance(df_json, list):
+                                    df_records = df_json
+                                elif isinstance(df_json, dict):
+                                    df_records = df_json
+                                else:
+                                    continue
+                                
+                                self.processed_data = pd.DataFrame(df_records)
+                                self.original_df = self.processed_data.copy()  # Store original
+                                self.processed_data = self._preprocess_fpso_data(self.processed_data)
+                                self.current_file_name = latest_file
+                                logger.info(f"Auto-load: Restored {len(self.processed_data)} rows from {latest_file}")
+                                break  # Found DataFrame, stop looking
                             except Exception as df_error:
                                 logger.warning(f"Failed to restore DataFrame in auto-load: {str(df_error)}")
                     
+                    # Try to load DataFrame from dedicated cache table
+                    cached_df = self._load_dataframe_from_cache(latest_file)
+                    if cached_df is not None:
+                        self.processed_data = cached_df
+                        self.original_df = cached_df.copy()
+                        self.current_file_name = latest_file
+                        
                     if restored_docs:
                         self.all_documents.extend(restored_docs)
                         self.create_enhanced_vector_store()
-                        logger.info(f"Successfully auto-loaded {latest_file} with {len(restored_docs)} documents")
+                        
+                        # Debug: Check if DataFrame was restored
+                        if self.processed_data is not None:
+                            logger.info(f"Auto-load complete: {latest_file} with {len(restored_docs)} documents and {len(self.processed_data)} data rows")
+                        else:
+                            logger.warning(f"Auto-load: Documents loaded but no DataFrame found for {latest_file}")
+                        
                         return True
                     
         except Exception as e:
             logger.warning(f"Auto-load dataset failed: {str(e)}")
         
         return False
+    
+    def _store_dataframe_in_cache(self, file_name, df, original_row_count):
+        """Store DataFrame in dedicated cache table"""
+        try:
+            if not self.db_manager or not self.db_manager.engine:
+                return
+            
+            # Convert DataFrame to JSON records
+            df_json = df.to_json(orient='records', date_format='iso')
+            columns_info = {
+                'columns': list(df.columns),
+                'dtypes': {col: str(dtype) for col, dtype in df.dtypes.items()},
+                'shape': df.shape,
+                'original_row_count': original_row_count
+            }
+            
+            with self.db_manager.engine.connect() as conn:
+                conn.execute(text("""
+                INSERT INTO cached_dataframes (file_name, dataframe_data, columns_info, row_count)
+                VALUES (:file_name, :dataframe_data, :columns_info, :row_count)
+                ON CONFLICT (file_name) DO UPDATE SET
+                    dataframe_data = :dataframe_data,
+                    columns_info = :columns_info,
+                    row_count = :row_count,
+                    updated_at = CURRENT_TIMESTAMP
+                """), {
+                    'file_name': file_name,
+                    'dataframe_data': df_json,
+                    'columns_info': json.dumps(columns_info),
+                    'row_count': len(df)
+                })
+                conn.commit()
+                logger.info(f"Cached DataFrame for {file_name}: {len(df)} rows stored")
+                
+        except Exception as e:
+            logger.error(f"Error storing DataFrame in cache: {str(e)}")
+    
+    def _load_dataframe_from_cache(self, file_name):
+        """Load DataFrame from cache table"""
+        try:
+            if not self.db_manager or not self.db_manager.engine:
+                return None
+            
+            with self.db_manager.engine.connect() as conn:
+                result = conn.execute(text("""
+                SELECT dataframe_data, columns_info, row_count 
+                FROM cached_dataframes 
+                WHERE file_name = :file_name
+                """), {'file_name': file_name})
+                
+                row = result.fetchone()
+                if row:
+                    # Restore DataFrame from JSON
+                    df_data = json.loads(row[0])
+                    df = pd.DataFrame(df_data)
+                    
+                    # Apply preprocessing
+                    df = self._preprocess_fpso_data(df)
+                    
+                    columns_info = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+                    logger.info(f"Loaded cached DataFrame for {file_name}: {len(df)} rows")
+                    
+                    return df
+                    
+        except Exception as e:
+            logger.error(f"Error loading DataFrame from cache: {str(e)}")
+        
+        return None
     
     def _preprocess_fpso_data(self, df):
         """Preprocess DataFrame to remove LDA entries and optimize for FPSO filtering"""
